@@ -1,4 +1,4 @@
-# Connect 4
+# Connect 4 [see it here](https://festive-williams-256a97.netlify.com/)
 ![React](./react.png?raw=true 'React')![Babel](./babel.png?raw=true 'Babel')![Webpack](./webpack.png?raw=true 'Webpack')
 
 ## About:
