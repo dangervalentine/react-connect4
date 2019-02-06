@@ -7,7 +7,7 @@ This project uses React, Webpack, Babel, and Redux in order to create  the Conne
 
 ---
 
-![Connect Four](./connect4.png?raw=true "'It's like tic-tac-toe, but, like, more' - Sean")
+[![Connect Four](./connect4.png?raw=true "'It's like tic-tac-toe, but, like, more' - Sean")](https://festive-williams-256a97.netlify.com/)
 
 ---
 
