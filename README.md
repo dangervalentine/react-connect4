@@ -2,7 +2,7 @@
 
 ## About:
 
-This project will use React, Webpack, Babel, and Redux in order to create a SPA of the Connect Four game we all played as a youngster and miss as an adult (for those of us that don't have kids which force us to play these games with them)
+This project uses React, Webpack, Babel, and Redux in order to create  the Connect Four game we all played as a youngster and miss as an adult.
 
 ## Summary:
 
