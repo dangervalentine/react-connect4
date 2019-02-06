@@ -1,5 +1,5 @@
 # Connect 4
-![React](./react.png?raw=true 'React')![Babel](./babel.png?raw=true 'Babel')![Webpack](./.png?raw=true 'Webpack')
+![React](./react.png?raw=true 'React')![Babel](./babel.png?raw=true 'Babel')![Webpack](./webpack.png?raw=true 'Webpack')
 
 ## About:
 
