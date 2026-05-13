@@ -104,9 +104,9 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const layout = getLayout();
     const state = store.getState();
 
-    // End-of-game Reset button: starts a new game with the same config.
+    // End-of-game "Menu" button: returns to the welcome modal.
     if (state.showOverlay && isInResetButton(layout, x, y)) {
-      state.resetGame();
+      state.openSetup();
       anim.hoveredColumn = null;
       anim.resetHovered = false;
       return;
@@ -137,7 +137,7 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const state = store.getState();
 
     if (state.showOverlay && isInResetButton(layout, x, y)) {
-      state.resetGame();
+      state.openSetup();
       anim.hoveredColumn = null;
       anim.resetHovered = false;
       return;
@@ -177,9 +177,16 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const state = store.getState();
 
     if (state.showOverlay) {
-      if (event.key === 'r' || event.key === 'R' || event.key === 'Enter' || event.key === ' ') {
+      // After a game ends, the only action is returning to the welcome
+      // modal — Enter / Space / M all do it.
+      if (
+        event.key === 'Enter' ||
+        event.key === ' ' ||
+        event.key === 'm' ||
+        event.key === 'M'
+      ) {
         event.preventDefault();
-        state.resetGame();
+        state.openSetup();
       }
       return;
     }

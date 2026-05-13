@@ -1,4 +1,4 @@
-import { COLUMNS, ROWS, type Cell, type Player, type WinningPiece } from '../constants';
+import { COLUMNS, ROWS, type Cell, type GameBoard, type Player, type WinningPiece } from '../constants';
 import type { useGameStore } from '../store';
 import {
   cellCenter,
@@ -87,10 +87,15 @@ const isWinningPiece = (
 ): boolean =>
   winningPieces.some((p) => p.column === col && p.row === row);
 
-const drawPieces = (
+/**
+ * Draw all pieces for the given board. Board-agnostic so the attract path can
+ * paint a separate self-play game without going through the store.
+ */
+const drawPiecesForBoard = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
-  state: GameState,
+  gameBoard: GameBoard,
+  winningPieces: ReadonlyArray<WinningPiece>,
   anim: AnimState,
   now: number,
 ): void => {
@@ -98,13 +103,13 @@ const drawPieces = (
 
   for (let col = 0; col < COLUMNS; col++) {
     for (let row = 0; row < ROWS; row++) {
-      const cellValue: Cell = state.gameBoard[col][row];
+      const cellValue: Cell = gameBoard[col][row];
       if (cellValue === 0) continue;
 
       const finalCenter = cellCenter(layout, col, row);
       const progress = dropProgress(anim, col, row, now);
       const y = startY + (finalCenter.y - startY) * progress;
-      const isWinner = isWinningPiece(state.winningPieces, col, row);
+      const isWinner = isWinningPiece(winningPieces, col, row);
 
       // Draw the pulse ring under the piece while it pulses (only after the
       // drop has finished, otherwise it looks odd attached to a falling piece).
@@ -500,9 +505,40 @@ const drawOverlay = (
 
   ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
   ctx.font = `${16 * layout.scale}px system-ui, sans-serif`;
-  ctx.fillText('Reset', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
+  ctx.fillText('Menu', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
 
   ctx.restore();
+};
+
+// ───────────────────────── attract paint ─────────────────────────
+
+/**
+ * View model for the attract self-play running behind the welcome modal.
+ * Painted independently from the real game so the two can't collide.
+ */
+export type AttractView = {
+  gameBoard: GameBoard;
+  winningPieces: ReadonlyArray<WinningPiece>;
+};
+
+/**
+ * Slim paint path for setup mode: just background + pieces + board + title.
+ * No clocks, no menu button, no hover ghost, no end-game overlay — the
+ * welcome modal sits in front of all of that.
+ */
+export const paintAttract = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  view: AttractView,
+  anim: AnimState,
+  now: number,
+): void => {
+  ctx.fillStyle = C.boardBlue;
+  ctx.fillRect(0, 0, layout.width, layout.height);
+
+  drawPiecesForBoard(ctx, layout, view.gameBoard, view.winningPieces, anim, now);
+  drawBoardWithHoles(ctx, layout);
+  drawBoardTitle(ctx, layout);
 };
 
 // ───────────────────────── paint ─────────────────────────
@@ -538,7 +574,7 @@ export const paint = (
   // 3. Pieces — drawn in their current positions (some may be above the
   //    board area mid-drop; those will remain visible since the yellow board
   //    layer only covers the rectangle below).
-  drawPieces(ctx, layout, state, anim, now);
+  drawPiecesForBoard(ctx, layout, state.gameBoard, state.winningPieces, anim, now);
 
   // 4. Yellow board face with circular holes. Pieces in step 3 show through
   //    the holes; the rest is covered by yellow.
