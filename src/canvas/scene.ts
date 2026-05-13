@@ -18,13 +18,46 @@ type GameState = ReturnType<typeof useGameStore.getState>;
 // ───────────────────────── palette ─────────────────────────
 
 const C = {
+  // Blue family — split into a 3-stop tonal ramp so the canvas can carry a
+  // subtle vignette without the board itself losing its iconic mid-blue.
   boardBlue: '#1565c0',
+  boardBlueLight: '#1d75d4', // vignette center
+  boardBlueDark: '#0b3f8c',  // vignette edges, support feet, deep hole back
+
+  // Yellow family — vertical gradient on the board face for a faint plastic
+  // sheen. Edges are deliberately narrow so the board reads as one color at a
+  // glance and the gradient is something you only notice if you look for it.
   boardYellow: '#fbc02d',
+  boardYellowLight: '#fdd54b',
+  boardYellowDark: '#f1a917',
+
   pieceRed: '#f44336',
   pieceRedSoft: '#e57373',
   pieceBlack: '#1a1a1a',
   pieceBlackSoft: '#4a4a4a',
   pieceWinner: '#ffffff',
+
+  // Hairline ring drawn around each piece to suggest a moulded edge — Hasbro
+  // chips have a thin lip you can feel with a thumbnail.
+  pieceEmboss: 'rgba(0, 0, 0, 0.32)',
+  // Specular dot for the glossy plastic highlight. Kept partially transparent
+  // so it tints toward the piece's underlying color rather than reading pure
+  // white.
+  pieceSpecular: 'rgba(255, 255, 255, 0.55)',
+
+  // Hole interior — a soft radial dark, painted before pieces, that survives
+  // when a slot is empty and gives the holes visible depth.
+  holeBack: 'rgba(0, 0, 0, 0.45)',
+  // Inner shadow ring drawn just inside each hole, on the yellow face, to
+  // suggest the rim of a slot — like a millimeter of bevel.
+  holeRim: 'rgba(140, 90, 0, 0.55)',
+
+  // Thin lines between columns. Very low contrast — your eye reads them as
+  // "the board has columns" without making them feel ruled.
+  columnDivider: 'rgba(100, 60, 0, 0.18)',
+  // Highlight stroke along the top arch — fakes a light coming from above.
+  topArchHighlight: 'rgba(255, 255, 255, 0.28)',
+
   columnHover: '#3498db',
   cardBg: '#e9e9e9',
   cardShadow: 'rgba(0, 0, 0, 0.25)',
@@ -74,6 +107,32 @@ const circlePath = (
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
 };
 
+// ───────────────────────── background vignette ─────────────────────────
+
+/**
+ * Radial vignette over the whole canvas: lighter in the middle, darker at the
+ * corners. Replaces the previous flat-fill background so the board sits on
+ * something rather than floating against a single tone of blue.
+ */
+const drawBackground = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const cx = layout.width / 2;
+  const cy = layout.height / 2;
+  // Reach to a corner — this is the "outer ring" radius. Using the corner
+  // distance means the darkening lands at the canvas edges rather than
+  // partway in, which would look like a halo.
+  const outer = Math.hypot(layout.width, layout.height) / 2;
+
+  const grad = ctx.createRadialGradient(cx, cy, outer * 0.15, cx, cy, outer);
+  grad.addColorStop(0, C.boardBlueLight);
+  grad.addColorStop(1, C.boardBlueDark);
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, layout.width, layout.height);
+};
+
 // ───────────────────────── pieces ─────────────────────────
 
 /** Where the falling piece visually starts (well above the board). */
@@ -86,6 +145,43 @@ const isWinningPiece = (
   row: number,
 ): boolean =>
   winningPieces.some((p) => p.column === col && p.row === row);
+
+/**
+ * Paint a soft dark vignette at each cell position. Drawn between the canvas
+ * background and the pieces so:
+ *   - empty cells: this shadow shows through the hole cutout, giving the slot
+ *     visible depth.
+ *   - occupied cells: the opaque piece covers the shadow.
+ *
+ * The radial fade keeps the cell back from looking like a flat black disc —
+ * the darkness pools at the hole's edge, matching how light wraps into a real
+ * recessed cavity.
+ */
+const drawHoleBackShadows = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { cell } = layout;
+  for (let col = 0; col < COLUMNS; col++) {
+    for (let row = 0; row < ROWS; row++) {
+      const c = cellCenter(layout, col, row);
+      const grad = ctx.createRadialGradient(
+        c.x,
+        c.y,
+        cell.holeRadius * 0.35,
+        c.x,
+        c.y,
+        cell.holeRadius,
+      );
+      grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      grad.addColorStop(1, C.holeBack);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, cell.holeRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+};
 
 /**
  * Draw all pieces for the given board. Board-agnostic so the attract path can
@@ -133,36 +229,76 @@ const drawPiecesForBoard = (
       const radius = layout.cell.pieceRadius * scale;
       const fill = isWinner ? C.pieceWinner : colorFor(cellValue);
 
-      // Subtle inner highlight for a slightly 3D look — top-left lighter.
+      // ── piece body ──
+      //
+      // Three-stop radial gradient: a near-white core (off-center, upper-left
+      // light source), the piece's soft tone in the middle, then the full
+      // saturated color at the rim. The wider middle stop is what reads as
+      // "glossy plastic" rather than "flat circle".
       const gradient = ctx.createRadialGradient(
-        finalCenter.x - radius * 0.3,
-        y - radius * 0.3,
-        radius * 0.1,
+        finalCenter.x - radius * 0.35,
+        y - radius * 0.35,
+        radius * 0.05,
         finalCenter.x,
         y,
         radius,
       );
-      gradient.addColorStop(0, isWinner ? '#ffffff' : softColorFor(cellValue));
-      gradient.addColorStop(1, fill);
-
+      if (isWinner) {
+        gradient.addColorStop(0, '#ffffff');
+        gradient.addColorStop(0.75, '#f5f5f5');
+        gradient.addColorStop(1, '#d8d8d8');
+      } else {
+        gradient.addColorStop(0, softColorFor(cellValue));
+        gradient.addColorStop(0.6, fill);
+        // A hair darker than `fill` at the very rim gives the piece a sense
+        // of curving away from the light.
+        gradient.addColorStop(1, fill);
+      }
       ctx.fillStyle = gradient;
       circlePath(ctx, finalCenter.x, y, radius);
       ctx.fill();
+
+      // ── emboss ring ──
+      //
+      // A 1px-ish darker stroke around the edge mimics the moulded lip on
+      // real plastic chips and crisply separates the piece from the cell
+      // rim. Only applied to non-winner pieces; winners read better with the
+      // pulse ring providing their outline.
+      if (!isWinner) {
+        ctx.lineWidth = Math.max(1, 1.2 * layout.scale);
+        ctx.strokeStyle = C.pieceEmboss;
+        circlePath(ctx, finalCenter.x, y, radius - ctx.lineWidth / 2);
+        ctx.stroke();
+      }
+
+      // ── specular highlight ──
+      //
+      // Small bright ellipse offset toward the top-left. Tints over the
+      // gradient core to push the "wet plastic" feeling. Tilted ~30° so it
+      // doesn't look like a perfectly horizontal painter's blob.
+      ctx.save();
+      ctx.translate(finalCenter.x - radius * 0.32, y - radius * 0.42);
+      ctx.rotate(-Math.PI / 6);
+      ctx.fillStyle = C.pieceSpecular;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, radius * 0.28, radius * 0.14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
   }
 };
 
 // ───────────────────────── board (with holes) ─────────────────────────
 
-const drawBoardWithHoles = (
+/**
+ * Build the outer board silhouette as a single closed path. Pulled out so the
+ * column-divider pass can clip against the same shape without re-deriving it.
+ */
+const buildBoardSilhouette = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
 ): void => {
-  const { board, cell } = layout;
-
-  // Single path: top arch + body + bottom arch, with all 42 circular holes
-  // subtracted via the even-odd fill rule. Pieces drawn earlier show through
-  // the holes; everything else is covered by the yellow board face.
+  const { board } = layout;
   ctx.beginPath();
 
   // Top arch (rounded top corners, flat bottom).
@@ -174,8 +310,7 @@ const drawBoardWithHoles = (
     board.x + board.width,
     board.y + board.topArchHeight,
   );
-  ctx.lineTo(board.x + board.width, board.y + board.topArchHeight);
-  // body
+  // body right edge
   ctx.lineTo(board.x + board.width, board.bodyTop + board.bodyHeight);
   // Bottom arch: rounded bottom corners.
   ctx.lineTo(
@@ -198,12 +333,18 @@ const drawBoardWithHoles = (
     board.x,
     board.bodyTop + board.bodyHeight + board.bottomArchHeight - board.topArchHeight,
   );
-  ctx.lineTo(board.x, board.bodyTop);
+  // body left edge
   ctx.lineTo(board.x, board.y + board.topArchHeight);
   ctx.quadraticCurveTo(board.x, board.y, board.x + board.topArchHeight, board.y);
   ctx.closePath();
+};
 
-  // Subpath per cell hole.
+/** Append the 42 hole circles as subpaths into the current ctx path. */
+const appendHoleSubpaths = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { cell } = layout;
   for (let col = 0; col < COLUMNS; col++) {
     for (let row = 0; row < ROWS; row++) {
       const c = cellCenter(layout, col, row);
@@ -211,9 +352,165 @@ const drawBoardWithHoles = (
       ctx.arc(c.x, c.y, cell.holeRadius, 0, Math.PI * 2);
     }
   }
+};
 
-  ctx.fillStyle = C.boardYellow;
+const drawBoardWithHoles = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { board } = layout;
+
+  // Single path: silhouette + 42 hole subpaths, filled with even-odd so the
+  // holes punch through. Filled with a vertical gradient instead of a flat
+  // color so the face reads as faintly reflective plastic rather than card.
+  buildBoardSilhouette(ctx, layout);
+  appendHoleSubpaths(ctx, layout);
+
+  const grad = ctx.createLinearGradient(0, board.y, 0, board.y + board.height);
+  grad.addColorStop(0, C.boardYellowLight);
+  grad.addColorStop(0.55, C.boardYellow);
+  grad.addColorStop(1, C.boardYellowDark);
+  ctx.fillStyle = grad;
   ctx.fill('evenodd');
+};
+
+/**
+ * Soft dark ring around each hole, painted on the yellow face just outside
+ * the hole boundary. Reads as the bevel/chamfer at the rim of a moulded slot.
+ * Stroking at `holeRadius + lineWidth/2` keeps the whole stroke on the yellow
+ * side rather than bleeding into the hole interior over the piece.
+ */
+const drawHoleRims = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { cell } = layout;
+  const lineWidth = Math.max(1, 1.5 * layout.scale);
+  ctx.strokeStyle = C.holeRim;
+  ctx.lineWidth = lineWidth;
+  const ringRadius = cell.holeRadius + lineWidth / 2;
+  for (let col = 0; col < COLUMNS; col++) {
+    for (let row = 0; row < ROWS; row++) {
+      const c = cellCenter(layout, col, row);
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, ringRadius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+};
+
+/**
+ * Thin vertical column dividers, clipped to the yellow region (so they don't
+ * paint over the holes or the back of the cells). They're nearly invisible by
+ * design — only the eye-tracking sense of "ah, columns" should register.
+ */
+const drawColumnDividers = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { board, cell, scale } = layout;
+
+  // Clip to (board outer shape) ∖ (holes). Even-odd matches the same fill
+  // rule the board uses, so what we end up with is "yellow face only".
+  ctx.save();
+  buildBoardSilhouette(ctx, layout);
+  appendHoleSubpaths(ctx, layout);
+  ctx.clip('evenodd');
+
+  ctx.strokeStyle = C.columnDivider;
+  ctx.lineWidth = Math.max(1, 1.5 * scale);
+  for (let col = 1; col < COLUMNS; col++) {
+    const x = board.x + board.padding + col * cell.size;
+    ctx.beginPath();
+    ctx.moveTo(x, board.bodyTop - board.topArchHeight * 0.4);
+    ctx.lineTo(x, board.bodyTop + board.bodyHeight + board.bottomArchHeight * 0.25);
+    ctx.stroke();
+  }
+  ctx.restore();
+};
+
+/**
+ * Highlight stroke along the upper arch and a touch of the upper side edges.
+ * Fakes a soft overhead light source — the same axis as the piece highlights.
+ */
+const drawTopArchHighlight = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { board, scale } = layout;
+
+  ctx.save();
+  ctx.strokeStyle = C.topArchHighlight;
+  ctx.lineWidth = Math.max(1.5, 2.5 * scale);
+  ctx.lineCap = 'round';
+
+  ctx.beginPath();
+  // Left curve up, across the top, right curve down — slightly inset from the
+  // outline so the stroke sits on the yellow rather than half-off the edge.
+  const inset = ctx.lineWidth / 2;
+  ctx.moveTo(board.x + inset, board.y + board.topArchHeight);
+  ctx.quadraticCurveTo(
+    board.x + inset,
+    board.y + inset,
+    board.x + board.topArchHeight,
+    board.y + inset,
+  );
+  ctx.lineTo(board.x + board.width - board.topArchHeight, board.y + inset);
+  ctx.quadraticCurveTo(
+    board.x + board.width - inset,
+    board.y + inset,
+    board.x + board.width - inset,
+    board.y + board.topArchHeight,
+  );
+  ctx.stroke();
+  ctx.restore();
+};
+
+/**
+ * Two splayed support feet drawn under the bottom arch — the unmistakable
+ * silhouette of the Hasbro toy. Painted in the deep-blue back tone so they
+ * read as the back plastic of the stand sticking out below the yellow face.
+ */
+const drawBoardFeet = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { board, scale } = layout;
+
+  const footHeight = 14 * scale;
+  // Top of the foot tucks under the bottom arch so there's no visible seam.
+  const topY = board.bodyTop + board.bodyHeight + board.bottomArchHeight - 2 * scale;
+  const bottomY = topY + footHeight;
+
+  // Inner edge of each foot is roughly under the cell at column 1 / column 5.
+  // Outer edge is just outside the board silhouette so the foot reads as
+  // "wider than the board at its base".
+  const innerInset = 70 * scale;
+  const outerOverhang = 6 * scale;
+  // Outer-bottom is shifted further out than outer-top — that splay is what
+  // sells the visual.
+  const splay = 10 * scale;
+
+  ctx.fillStyle = C.boardBlueDark;
+
+  // ── left foot ──
+  ctx.beginPath();
+  ctx.moveTo(board.x + innerInset, topY);                    // top-inner
+  ctx.lineTo(board.x - outerOverhang + splay * 0.4, topY);   // top-outer
+  ctx.lineTo(board.x - outerOverhang, bottomY);              // bottom-outer
+  ctx.lineTo(board.x + innerInset - splay, bottomY);         // bottom-inner
+  ctx.closePath();
+  ctx.fill();
+
+  // ── right foot (mirror) ──
+  const rightEdge = board.x + board.width;
+  ctx.beginPath();
+  ctx.moveTo(rightEdge - innerInset, topY);
+  ctx.lineTo(rightEdge + outerOverhang - splay * 0.4, topY);
+  ctx.lineTo(rightEdge + outerOverhang, bottomY);
+  ctx.lineTo(rightEdge - innerInset + splay, bottomY);
+  ctx.closePath();
+  ctx.fill();
 };
 
 // ───────────────────────── hover ─────────────────────────
@@ -522,9 +819,11 @@ export type AttractView = {
 };
 
 /**
- * Slim paint path for setup mode: just background + pieces + board + title.
- * No clocks, no menu button, no hover ghost, no end-game overlay — the
- * welcome modal sits in front of all of that.
+ * Slim paint path for setup mode. Mirrors the main `paint` render order
+ * (background → hole shadows → pieces → feet → board → rim → dividers →
+ * arch highlight → title) so the attract demo benefits from the same
+ * material polish as the real game. Omits clocks, menu, hover, and the
+ * end-game overlay — those don't apply during setup.
  */
 export const paintAttract = (
   ctx: CanvasRenderingContext2D,
@@ -533,11 +832,14 @@ export const paintAttract = (
   anim: AnimState,
   now: number,
 ): void => {
-  ctx.fillStyle = C.boardBlue;
-  ctx.fillRect(0, 0, layout.width, layout.height);
-
+  drawBackground(ctx, layout);
+  drawHoleBackShadows(ctx, layout);
   drawPiecesForBoard(ctx, layout, view.gameBoard, view.winningPieces, anim, now);
+  drawBoardFeet(ctx, layout);
   drawBoardWithHoles(ctx, layout);
+  drawHoleRims(ctx, layout);
+  drawColumnDividers(ctx, layout);
+  drawTopArchHighlight(ctx, layout);
   drawBoardTitle(ctx, layout);
 };
 
@@ -550,16 +852,19 @@ export const paint = (
   anim: AnimState,
   now: number,
 ): void => {
-  // 1. Background. Always painted; everything else stacks on top.
-  ctx.fillStyle = C.boardBlue;
-  ctx.fillRect(0, 0, layout.width, layout.height);
+  // 1. Background vignette — radial gradient so the corners darken and the
+  //    middle stays bright. Replaces the previous flat fill.
+  drawBackground(ctx, layout);
 
-  // During the welcome modal we hold the canvas mostly blank — a full DOM
-  // modal sits in front, and rendering pieces/clocks here would be visual
-  // noise behind it. We still paint the board so the canvas isn't an empty
-  // rectangle if the modal is dismissed via Escape.
+  // During the welcome modal we'd normally hand off to paintAttract; this
+  // branch is the defensive fallback if paint() ever gets called in setup.
   if (state.gamePhase === 'setup') {
+    drawHoleBackShadows(ctx, layout);
+    drawBoardFeet(ctx, layout);
     drawBoardWithHoles(ctx, layout);
+    drawHoleRims(ctx, layout);
+    drawColumnDividers(ctx, layout);
+    drawTopArchHighlight(ctx, layout);
     drawBoardTitle(ctx, layout);
     return;
   }
@@ -571,34 +876,51 @@ export const paint = (
     drawTurnIndicator(ctx, layout, state);
   }
 
-  // 3. Pieces — drawn in their current positions (some may be above the
-  //    board area mid-drop; those will remain visible since the yellow board
-  //    layer only covers the rectangle below).
+  // 3. Hole back-shadows. Painted on the background BEFORE pieces so that:
+  //    - empty cells: the shadow shows through the hole cutout below
+  //      and gives the slot real depth.
+  //    - occupied cells: the opaque piece in step 4 covers the shadow.
+  drawHoleBackShadows(ctx, layout);
+
+  // 4. Pieces. Mid-drop pieces appear above the board area; they remain
+  //    visible since the yellow face in step 6 only covers the rectangle
+  //    below + cuts holes through which settled pieces show.
   drawPiecesForBoard(ctx, layout, state.gameBoard, state.winningPieces, anim, now);
 
-  // 4. Yellow board face with circular holes. Pieces in step 3 show through
-  //    the holes; the rest is covered by yellow.
+  // 5. Support feet — drawn before the yellow face so the bottom-arch
+  //    silhouette overlaps cleanly, hiding any seam.
+  drawBoardFeet(ctx, layout);
+
+  // 6. Yellow board face with circular holes. Pieces in step 4 show through
+  //    the holes; everything else is covered by the yellow gradient.
   drawBoardWithHoles(ctx, layout);
 
-  // 5. Hover indicator + ghost piece. Drawn after the board so the ghost
+  // 7. Hole rims, column dividers, top-arch highlight — micro-details that
+  //    only register as "the board has texture" rather than as visible
+  //    elements. All clipped/positioned so they sit on the yellow.
+  drawHoleRims(ctx, layout);
+  drawColumnDividers(ctx, layout);
+  drawTopArchHighlight(ctx, layout);
+
+  // 8. Hover indicator + ghost piece. Drawn after the board so the ghost
   //    appears INSIDE the appropriate hole and the column tint sits on top
   //    of the yellow band.
   drawHover(ctx, layout, state, anim);
 
-  // 6. "CONNECT4" title.
+  // 9. "CONNECT4" title.
   drawBoardTitle(ctx, layout);
 
-  // 7. In-game MENU button (top-right). Hidden once the win/draw overlay is
-  //    up — that overlay has its own Reset button.
+  // 10. In-game MENU button (top-right). Hidden once the win/draw overlay
+  //     is up — that overlay has its own Menu button.
   if (!state.showOverlay) {
     drawMenuButton(ctx, layout, anim);
   }
 
-  // 8. AI "thinking" pulse, layered above the board but below the overlay.
+  // 11. AI "thinking" pulse, layered above the board but below the overlay.
   if (state.aiThinking) {
     drawThinkingIndicator(ctx, layout, now);
   }
 
-  // 9. End-of-game overlay.
+  // 12. End-of-game overlay.
   drawOverlay(ctx, layout, state, anim, now);
 };
