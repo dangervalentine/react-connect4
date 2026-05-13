@@ -18,6 +18,12 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Opt JS-based actions (checkout, setup-node, deploy-pages, ...) into the
+# Node 24 runtime ahead of GitHub's June 2, 2026 cutover. Remove this once
+# we're on action majors that ship with Node 24 natively.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           # cache: npm  # re-enable once a package-lock.json is committed
 
       # Use `npm install` until a lockfile is committed; switch to `npm ci` after.
