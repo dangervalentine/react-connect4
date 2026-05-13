@@ -10,20 +10,32 @@ import { useGameStore } from '../store';
 export const ResetConfirmModal = () => {
   const cancelResetRequest = useGameStore((s) => s.cancelResetRequest);
   const openSetup = useGameStore((s) => s.openSetup);
+  const keyboardHintsVisible = useGameStore((s) => s.keyboardHintsVisible);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
   // Focus Cancel by default — destructive action is never the default focus.
   useEffect(() => {
     cancelButtonRef.current?.focus();
   }, []);
 
-  // Allow Enter to dismiss when Cancel is focused; Esc is handled globally
-  // in the canvas keydown handler, but we re-handle it here so the modal
-  // works even if focus is inside it.
+  /**
+   * Swap focus between Cancel and Return with arrow keys. Mirrors the modal's
+   * other keyboard affordances — Esc to dismiss, Enter to activate the
+   * focused button.
+   */
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault();
       cancelResetRequest();
+      return;
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      cancelButtonRef.current?.focus();
+    } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      confirmButtonRef.current?.focus();
     }
   };
 
@@ -54,12 +66,20 @@ export const ResetConfirmModal = () => {
           </button>
           <button
             type="button"
+            ref={confirmButtonRef}
             className="danger-btn"
             onClick={openSetup}
           >
             Return
           </button>
         </div>
+
+        {keyboardHintsVisible && (
+          <p className="modal-kb-hint" role="note">
+            <kbd>←</kbd> <kbd>→</kbd> to swap, <kbd>Enter</kbd> to confirm,{' '}
+            <kbd>Esc</kbd> to cancel.
+          </p>
+        )}
       </div>
     </div>
   );

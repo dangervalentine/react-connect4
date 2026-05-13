@@ -39,11 +39,18 @@ type GameState = {
   isDraw: boolean;
   playerOneTime: number;
   playerTwoTime: number;
+  /**
+   * Whether the end-game banner is showing. Note: this stays false during the
+   * "win sequence" pause (staggered piece highlight + hold) after a game ends.
+   * App.tsx flips it true via `revealEndOverlay` once the sequence completes.
+   */
   showOverlay: boolean;
   gameBoard: GameBoard;
   winningPieces: WinningPiece[];
   /** Drives the mid-game "return to setup?" confirmation modal. */
   showResetConfirm: boolean;
+  /** Whether to display the keyboard-shortcut hints throughout the app. */
+  keyboardHintsVisible: boolean;
 };
 
 type GameActions = {
@@ -59,6 +66,10 @@ type GameActions = {
   addPiece: (rowIndex: number, columnIndex: number) => void;
   incTimer: () => void;
   setAiThinking: (thinking: boolean) => void;
+  /** Show the end-game banner. Called by App.tsx after the win sequence. */
+  revealEndOverlay: () => void;
+  /** Toggle the visibility of keyboard hints across canvas + modals. */
+  toggleKeyboardHints: () => void;
 };
 
 /**
@@ -91,6 +102,7 @@ const initialState: GameState = {
   gamePhase: 'setup',
   ...defaultConfig,
   aiPlayer: null,
+  keyboardHintsVisible: false,
   ...freshBoardState(),
 };
 
@@ -167,11 +179,16 @@ export const useGameStore = create<GameState & GameActions>((set) => ({
 
       const winningPieces = checkGameBoard(gameBoard);
       if (winningPieces) {
+        // Banner is intentionally NOT shown immediately — App.tsx kicks off
+        // the win-sequence animation (staggered piece highlight + hold) and
+        // calls revealEndOverlay() once that completes. This gives the user
+        // time to see *who* won and *which* pieces won before the menu
+        // prompt covers any UI.
         return {
           gameBoard,
           winningPieces,
           winner: state.currentPlayer,
-          showOverlay: true,
+          showOverlay: false,
           isPlaying: false,
           gamePhase: 'finished' as GamePhase,
           aiThinking: false,
@@ -179,10 +196,11 @@ export const useGameStore = create<GameState & GameActions>((set) => ({
       }
 
       if (isBoardFull(gameBoard)) {
+        // Same staged reveal for draws; just shorter (no pieces to stagger).
         return {
           gameBoard,
           isDraw: true,
-          showOverlay: true,
+          showOverlay: false,
           isPlaying: false,
           gamePhase: 'finished' as GamePhase,
           aiThinking: false,
@@ -205,4 +223,16 @@ export const useGameStore = create<GameState & GameActions>((set) => ({
     }),
 
   setAiThinking: (thinking) => set(() => ({ aiThinking: thinking })),
+
+  revealEndOverlay: () =>
+    set((state) => {
+      // Only act on a finished game; ignore stray calls (e.g. if reset
+      // happened during the win-sequence delay).
+      if (state.gamePhase !== 'finished') return state;
+      if (state.showOverlay) return state;
+      return { showOverlay: true };
+    }),
+
+  toggleKeyboardHints: () =>
+    set((state) => ({ keyboardHintsVisible: !state.keyboardHintsVisible })),
 }));

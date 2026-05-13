@@ -7,8 +7,8 @@ import {
 import {
   type AnimState,
   dropProgress,
-  overlayBackdropAlpha,
   overlayCardProgress,
+  winPieceHighlightProgress,
   winPulseRing,
   winPulseScale,
 } from './animations';
@@ -52,9 +52,6 @@ const C = {
   // suggest the rim of a slot — like a millimeter of bevel.
   holeRim: 'rgba(140, 90, 0, 0.55)',
 
-  // Thin lines between columns. Very low contrast — your eye reads them as
-  // "the board has columns" without making them feel ruled.
-  columnDivider: 'rgba(100, 60, 0, 0.18)',
   // Highlight stroke along the top arch — fakes a light coming from above.
   topArchHighlight: 'rgba(255, 255, 255, 0.28)',
 
@@ -139,13 +136,6 @@ const drawBackground = (
 const dropStartY = (layout: Layout): number =>
   layout.board.y - layout.cell.size * 1.5;
 
-const isWinningPiece = (
-  winningPieces: ReadonlyArray<WinningPiece>,
-  col: number,
-  row: number,
-): boolean =>
-  winningPieces.some((p) => p.column === col && p.row === row);
-
 /**
  * Paint a soft dark vignette at each cell position. Drawn between the canvas
  * background and the pieces so:
@@ -183,9 +173,22 @@ const drawHoleBackShadows = (
   }
 };
 
+/** Find the position of (col,row) inside the winning-pieces array, or -1. */
+const winnerIndexOf = (
+  winningPieces: ReadonlyArray<WinningPiece>,
+  col: number,
+  row: number,
+): number => winningPieces.findIndex((p) => p.column === col && p.row === row);
+
 /**
  * Draw all pieces for the given board. Board-agnostic so the attract path can
  * paint a separate self-play game without going through the store.
+ *
+ * Winning pieces are highlighted with a staggered fade-to-white based on
+ * `anim.winSequenceStartedAt`. Each piece's highlight progress is computed
+ * from its index in `winningPieces`, so pieces light up *in array order*.
+ * The pulse ring + winPulseScale only kick in once a given piece is fully
+ * highlighted (progress >= 1) AND its drop animation has finished.
  */
 const drawPiecesForBoard = (
   ctx: CanvasRenderingContext2D,
@@ -203,13 +206,19 @@ const drawPiecesForBoard = (
       if (cellValue === 0) continue;
 
       const finalCenter = cellCenter(layout, col, row);
-      const progress = dropProgress(anim, col, row, now);
-      const y = startY + (finalCenter.y - startY) * progress;
-      const isWinner = isWinningPiece(winningPieces, col, row);
+      const dropP = dropProgress(anim, col, row, now);
+      const y = startY + (finalCenter.y - startY) * dropP;
 
-      // Draw the pulse ring under the piece while it pulses (only after the
-      // drop has finished, otherwise it looks odd attached to a falling piece).
-      if (isWinner && progress >= 1) {
+      const winnerIdx = winnerIndexOf(winningPieces, col, row);
+      const isWinner = winnerIdx >= 0;
+      const highlightP = isWinner
+        ? winPieceHighlightProgress(anim, winnerIdx, now)
+        : 0;
+      const fullyHighlighted = isWinner && highlightP >= 1 && dropP >= 1;
+
+      // Pulse ring under fully-highlighted pieces. Skipped while the piece
+      // is still fading in or still in mid-drop.
+      if (fullyHighlighted) {
         const ring = winPulseRing(now);
         ctx.save();
         ctx.globalAlpha = ring.alpha;
@@ -225,16 +234,16 @@ const drawPiecesForBoard = (
         ctx.restore();
       }
 
-      const scale = isWinner && progress >= 1 ? winPulseScale(now) : 1;
+      const scale = fullyHighlighted ? winPulseScale(now) : 1;
       const radius = layout.cell.pieceRadius * scale;
-      const fill = isWinner ? C.pieceWinner : colorFor(cellValue);
+      const fill = colorFor(cellValue);
 
-      // ── piece body ──
+      // ── normal-color body ──
       //
-      // Three-stop radial gradient: a near-white core (off-center, upper-left
-      // light source), the piece's soft tone in the middle, then the full
-      // saturated color at the rim. The wider middle stop is what reads as
-      // "glossy plastic" rather than "flat circle".
+      // Three-stop radial gradient with an off-center light source — reads as
+      // glossy plastic rather than a flat circle. Always drawn (even for
+      // winners) and then overlaid by the white winner gradient at alpha =
+      // highlightP for the staggered fade-in.
       const gradient = ctx.createRadialGradient(
         finalCenter.x - radius * 0.35,
         y - radius * 0.35,
@@ -243,39 +252,60 @@ const drawPiecesForBoard = (
         y,
         radius,
       );
-      if (isWinner) {
-        gradient.addColorStop(0, '#ffffff');
-        gradient.addColorStop(0.75, '#f5f5f5');
-        gradient.addColorStop(1, '#d8d8d8');
-      } else {
-        gradient.addColorStop(0, softColorFor(cellValue));
-        gradient.addColorStop(0.6, fill);
-        // A hair darker than `fill` at the very rim gives the piece a sense
-        // of curving away from the light.
-        gradient.addColorStop(1, fill);
-      }
+      gradient.addColorStop(0, softColorFor(cellValue));
+      gradient.addColorStop(0.6, fill);
+      gradient.addColorStop(1, fill);
+
       ctx.fillStyle = gradient;
       circlePath(ctx, finalCenter.x, y, radius);
       ctx.fill();
 
+      // ── winner overlay (alpha = highlightP) ──
+      //
+      // Cross-fades from the normal-color body to a white-gloss body. At
+      // progress 0 the piece looks normal; at 1 it's fully white. The drop
+      // delay in App.tsx ensures highlightP stays at 0 until the winning
+      // piece has finished falling.
+      if (highlightP > 0) {
+        const winnerGradient = ctx.createRadialGradient(
+          finalCenter.x - radius * 0.35,
+          y - radius * 0.35,
+          radius * 0.05,
+          finalCenter.x,
+          y,
+          radius,
+        );
+        winnerGradient.addColorStop(0, '#ffffff');
+        winnerGradient.addColorStop(0.75, '#f5f5f5');
+        winnerGradient.addColorStop(1, '#d8d8d8');
+
+        ctx.save();
+        ctx.globalAlpha = highlightP;
+        ctx.fillStyle = winnerGradient;
+        circlePath(ctx, finalCenter.x, y, radius);
+        ctx.fill();
+        ctx.restore();
+      }
+
       // ── emboss ring ──
       //
-      // A 1px-ish darker stroke around the edge mimics the moulded lip on
-      // real plastic chips and crisply separates the piece from the cell
-      // rim. Only applied to non-winner pieces; winners read better with the
-      // pulse ring providing their outline.
-      if (!isWinner) {
+      // Darker stroke around the edge mimics the moulded lip on plastic
+      // chips. Fades out as the piece highlights — winners read better
+      // with just the pulse ring outline.
+      if (highlightP < 1) {
+        ctx.save();
+        ctx.globalAlpha = 1 - highlightP;
         ctx.lineWidth = Math.max(1, 1.2 * layout.scale);
         ctx.strokeStyle = C.pieceEmboss;
         circlePath(ctx, finalCenter.x, y, radius - ctx.lineWidth / 2);
         ctx.stroke();
+        ctx.restore();
       }
 
       // ── specular highlight ──
       //
-      // Small bright ellipse offset toward the top-left. Tints over the
-      // gradient core to push the "wet plastic" feeling. Tilted ~30° so it
-      // doesn't look like a perfectly horizontal painter's blob.
+      // Small bright tilted ellipse near the top-left. Keeps the glossy
+      // look on both red/black and the post-highlight white state.
       ctx.save();
       ctx.translate(finalCenter.x - radius * 0.32, y - radius * 0.42);
       ctx.rotate(-Math.PI / 6);
@@ -397,36 +427,6 @@ const drawHoleRims = (
       ctx.stroke();
     }
   }
-};
-
-/**
- * Thin vertical column dividers, clipped to the yellow region (so they don't
- * paint over the holes or the back of the cells). They're nearly invisible by
- * design — only the eye-tracking sense of "ah, columns" should register.
- */
-const drawColumnDividers = (
-  ctx: CanvasRenderingContext2D,
-  layout: Layout,
-): void => {
-  const { board, cell, scale } = layout;
-
-  // Clip to (board outer shape) ∖ (holes). Even-odd matches the same fill
-  // rule the board uses, so what we end up with is "yellow face only".
-  ctx.save();
-  buildBoardSilhouette(ctx, layout);
-  appendHoleSubpaths(ctx, layout);
-  ctx.clip('evenodd');
-
-  ctx.strokeStyle = C.columnDivider;
-  ctx.lineWidth = Math.max(1, 1.5 * scale);
-  for (let col = 1; col < COLUMNS; col++) {
-    const x = board.x + board.padding + col * cell.size;
-    ctx.beginPath();
-    ctx.moveTo(x, board.bodyTop - board.topArchHeight * 0.4);
-    ctx.lineTo(x, board.bodyTop + board.bodyHeight + board.bottomArchHeight * 0.25);
-    ctx.stroke();
-  }
-  ctx.restore();
 };
 
 /**
@@ -708,6 +708,31 @@ const drawThinkingIndicator = (
   ctx.restore();
 };
 
+// ───────────────────────── column key hints ─────────────────────────
+
+/**
+ * Paint the digit (1-7) above each column when keyboard hints are on, so
+ * players know which number key drops a piece into which column. Sits in the
+ * narrow gap between the clocks band and the board's top arch.
+ */
+const drawColumnKeyHints = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+): void => {
+  const { board, cell, scale } = layout;
+
+  // Position: just above the top arch of the board.
+  const labelY = board.y - 6 * scale;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+  ctx.font = `bold ${13 * scale}px system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  for (let col = 0; col < COLUMNS; col++) {
+    const x = board.x + board.padding + (col + 0.5) * cell.size;
+    ctx.fillText(String(col + 1), x, labelY);
+  }
+};
+
 // ───────────────────────── board title ─────────────────────────
 
 const drawBoardTitle = (
@@ -725,9 +750,17 @@ const drawBoardTitle = (
   ctx.fillText('CONNECT4', cx, cy);
 };
 
-// ───────────────────────── overlay ─────────────────────────
+// ───────────────────────── end-of-game banner ─────────────────────────
 
-const drawOverlay = (
+/**
+ * Slim banner painted in the clocks band when a game is over. Replaces the
+ * old centered card so the board stays fully visible behind it (winning
+ * pieces in particular). Contains the result on the left and a Menu button
+ * on the right; no canvas-wide dim.
+ *
+ * Animates in via a fade + slight scale, reusing `overlayCardProgress`.
+ */
+const drawEndBanner = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
   state: GameState,
@@ -736,58 +769,56 @@ const drawOverlay = (
 ): void => {
   if (!state.showOverlay) return;
 
-  const backdropAlpha = overlayBackdropAlpha(anim, now);
   const cardProgress = overlayCardProgress(anim, now);
-
-  // Full-canvas backdrop.
-  ctx.save();
-  ctx.globalAlpha = backdropAlpha;
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, layout.width, layout.height);
-  ctx.restore();
-
-  // Card — scaled slightly up, fading in.
   const card = layout.overlay.card;
-  const scale = 0.94 + 0.06 * cardProgress;
   const cardCx = card.x + card.width / 2;
   const cardCy = card.y + card.height / 2;
 
+  // Subtle fade-in + scale-up. No backdrop dim — we want the board
+  // (especially the winning pieces) to stay readable underneath.
+  const scaleAnim = 0.94 + 0.06 * cardProgress;
   ctx.save();
   ctx.globalAlpha = cardProgress;
   ctx.translate(cardCx, cardCy);
-  ctx.scale(scale, scale);
+  ctx.scale(scaleAnim, scaleAnim);
   ctx.translate(-cardCx, -cardCy);
 
-  // Card body (cream) — single rounded rect with a drop shadow.
+  // Banner body with a soft drop-shadow so it lifts off the canvas.
   ctx.save();
   ctx.shadowColor = C.cardShadow;
-  ctx.shadowBlur = 24 * layout.scale;
-  ctx.shadowOffsetY = 8 * layout.scale;
+  ctx.shadowBlur = 18 * layout.scale;
+  ctx.shadowOffsetY = 4 * layout.scale;
   roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
   ctx.fillStyle = C.cardBg;
   ctx.fill();
   ctx.restore();
 
-  // Blue top half — fill a rectangle clipped to the card's rounded shape so
-  // the top corners stay rounded while the bottom edge is a clean divider.
-  ctx.save();
-  roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
-  ctx.clip();
-  ctx.fillStyle = C.boardBlue;
-  ctx.fillRect(card.x, card.y, card.width, card.height / 2);
-  ctx.restore();
+  // Left side: colored accent stripe in the winner's color (or neutral grey
+  // for a draw) — quick visual anchor for who won.
+  const stripeWidth = 6 * layout.scale;
+  ctx.fillStyle = state.isDraw
+    ? '#8b9ab0'
+    : state.winner === 1
+      ? C.pieceRed
+      : C.pieceBlack;
+  ctx.fillRect(
+    card.x,
+    card.y + 10 * layout.scale,
+    stripeWidth,
+    card.height - 20 * layout.scale,
+  );
 
-  // Message text.
+  // Message text — left-aligned next to the stripe.
   const message = state.isDraw
     ? "It's a draw"
     : `Player ${state.winner ?? state.currentPlayer} wins!`;
-  ctx.fillStyle = C.textOnBlue;
-  ctx.textAlign = 'center';
+  ctx.fillStyle = C.textOnCard;
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = `bold ${24 * layout.scale}px system-ui, -apple-system, sans-serif`;
-  ctx.fillText(message, cardCx, card.y + card.height * 0.25);
+  ctx.font = `bold ${22 * layout.scale}px system-ui, -apple-system, sans-serif`;
+  ctx.fillText(message, card.x + stripeWidth + 16 * layout.scale, cardCy);
 
-  // Reset button.
+  // Menu button on the right.
   const btn = layout.overlay.button;
   const hovered = anim.resetHovered;
 
@@ -799,9 +830,10 @@ const drawOverlay = (
     ctx.strokeStyle = C.boardBlue;
     ctx.stroke();
   }
-
   ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
-  ctx.font = `${16 * layout.scale}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${15 * layout.scale}px system-ui, sans-serif`;
   ctx.fillText('Menu', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
 
   ctx.restore();
@@ -838,7 +870,6 @@ export const paintAttract = (
   drawBoardFeet(ctx, layout);
   drawBoardWithHoles(ctx, layout);
   drawHoleRims(ctx, layout);
-  drawColumnDividers(ctx, layout);
   drawTopArchHighlight(ctx, layout);
   drawBoardTitle(ctx, layout);
 };
@@ -863,14 +894,18 @@ export const paint = (
     drawBoardFeet(ctx, layout);
     drawBoardWithHoles(ctx, layout);
     drawHoleRims(ctx, layout);
-    drawColumnDividers(ctx, layout);
     drawTopArchHighlight(ctx, layout);
     drawBoardTitle(ctx, layout);
     return;
   }
 
-  // 2. Clocks or minimal turn indicator, depending on config.
-  if (state.timersEnabled) {
+  // 2. Top band: clocks / turn indicator OR the end-of-game banner. The
+  //    banner only takes over once `showOverlay` is set (after the win
+  //    sequence completes); during the sequence pause the clocks stay visible
+  //    so the player sees the final times alongside the highlight animation.
+  if (state.showOverlay) {
+    // Don't paint clocks during the banner — banner sits in their space.
+  } else if (state.timersEnabled) {
     drawClocks(ctx, layout, state);
   } else {
     drawTurnIndicator(ctx, layout, state);
@@ -884,7 +919,8 @@ export const paint = (
 
   // 4. Pieces. Mid-drop pieces appear above the board area; they remain
   //    visible since the yellow face in step 6 only covers the rectangle
-  //    below + cuts holes through which settled pieces show.
+  //    below + cuts holes through which settled pieces show. Winning pieces
+  //    fade to white in staggered order based on anim.winSequenceStartedAt.
   drawPiecesForBoard(ctx, layout, state.gameBoard, state.winningPieces, anim, now);
 
   // 5. Support feet — drawn before the yellow face so the bottom-arch
@@ -895,32 +931,40 @@ export const paint = (
   //    the holes; everything else is covered by the yellow gradient.
   drawBoardWithHoles(ctx, layout);
 
-  // 7. Hole rims, column dividers, top-arch highlight — micro-details that
-  //    only register as "the board has texture" rather than as visible
-  //    elements. All clipped/positioned so they sit on the yellow.
+  // 7. Hole rims + top-arch highlight — micro-details that read as "the
+  //    board has texture" rather than as visible elements. All clipped or
+  //    positioned to sit on the yellow.
   drawHoleRims(ctx, layout);
-  drawColumnDividers(ctx, layout);
   drawTopArchHighlight(ctx, layout);
 
-  // 8. Hover indicator + ghost piece. Drawn after the board so the ghost
-  //    appears INSIDE the appropriate hole and the column tint sits on top
-  //    of the yellow band.
-  drawHover(ctx, layout, state, anim);
+  // 8. Column key hints — "1" through "7" above each column. Shown only
+  //    while the game is live (a true hint applies only when input matters)
+  //    and the user has the keyboard-hints toggle on.
+  if (state.keyboardHintsVisible && state.gamePhase === 'playing' && !state.showOverlay) {
+    drawColumnKeyHints(ctx, layout);
+  }
 
-  // 9. "CONNECT4" title.
+  // 9. Hover indicator + ghost piece. Drawn after the board so the ghost
+  //    appears INSIDE the appropriate hole and the column tint sits on top
+  //    of the yellow band. Suppressed during the end-banner / win sequence.
+  if (!state.showOverlay) {
+    drawHover(ctx, layout, state, anim);
+  }
+
+  // 10. "CONNECT4" title.
   drawBoardTitle(ctx, layout);
 
-  // 10. In-game MENU button (top-right). Hidden once the win/draw overlay
-  //     is up — that overlay has its own Menu button.
-  if (!state.showOverlay) {
+  // 11. In-game MENU button (top-right). Hidden once the win/draw banner
+  //     is up — that banner has its own Menu button.
+  if (!state.showOverlay && state.gamePhase === 'playing') {
     drawMenuButton(ctx, layout, anim);
   }
 
-  // 11. AI "thinking" pulse, layered above the board but below the overlay.
+  // 12. AI "thinking" pulse, layered above the board but below the banner.
   if (state.aiThinking) {
     drawThinkingIndicator(ctx, layout, now);
   }
 
-  // 12. End-of-game overlay.
-  drawOverlay(ctx, layout, state, anim, now);
+  // 13. End-of-game banner. Sits in the clocks band; doesn't cover the board.
+  drawEndBanner(ctx, layout, state, anim, now);
 };
