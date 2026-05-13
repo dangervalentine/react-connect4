@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Connect 4">
+  <title>Connect 4</title>
+
+  <!--
+    Compact Connect 4 board fragment. Uses the same palette as the canvas
+    renderer so the icon and the in-app board feel like the same artifact:
+      #1565c0 — board blue (frame)
+      #fbc02d — board yellow (front face)
+      #f44336 — red piece
+      #1a1a1a — black piece
+    Designed at 32x32 viewBox; renders cleanly down to 16px and up to
+    the 80px README hero.
+  -->
+
+  <!-- Blue board frame -->
+  <rect width="32" height="32" rx="5" fill="#1565c0" />
+
+  <!-- Yellow board face -->
+  <rect x="3" y="5" width="26" height="22" rx="3" fill="#fbc02d" />
+
+  <!-- 2x2 grid of pieces — two reds on the diagonal, two blacks on the other -->
+  <circle cx="10" cy="11" r="3.3" fill="#f44336" />
+  <circle cx="22" cy="11" r="3.3" fill="#1a1a1a" />
+  <circle cx="10" cy="21" r="3.3" fill="#1a1a1a" />
+  <circle cx="22" cy="21" r="3.3" fill="#f44336" />
+</svg>

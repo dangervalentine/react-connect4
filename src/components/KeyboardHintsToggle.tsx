@@ -11,8 +11,9 @@ import { useGameStore } from '../store';
  *   - Welcome modal: shows a hint footer with arrow-key navigation guidance.
  *   - Reset-confirm modal: shows a hint footer with Enter/Esc guidance.
  *
- * Shortcut: pressing "?" anywhere also toggles this (wired in App.tsx). The
- * inline <kbd> glyph in the button surfaces that shortcut.
+ * Shortcut: pressing "K" anywhere also toggles this (wired in App.tsx). The
+ * inline <kbd> glyph in the button surfaces that shortcut. Single key —
+ * no Shift gymnastics — and mnemonic for "Keyboard".
  */
 export const KeyboardHintsToggle = () => {
   const visible = useGameStore((s) => s.keyboardHintsVisible);
@@ -26,15 +27,15 @@ export const KeyboardHintsToggle = () => {
       aria-pressed={visible}
       aria-label={
         visible
-          ? 'Hide keyboard controls throughout the app (shortcut: ?)'
-          : 'Show keyboard controls throughout the app (shortcut: ?)'
+          ? 'Hide keyboard controls throughout the app (shortcut: K)'
+          : 'Show keyboard controls throughout the app (shortcut: K)'
       }
     >
       <span className="kb-toggle-icon" aria-hidden="true">⌨</span>
       <span className="kb-toggle-label">
         {visible ? 'Hide keyboard controls' : 'Show keyboard controls'}
       </span>
-      <kbd className="kb-toggle-key" aria-hidden="true">?</kbd>
+      <kbd className="kb-toggle-key" aria-hidden="true">K</kbd>
     </button>
   );
 };
