@@ -13,6 +13,7 @@ import { paint, paintAttract } from './canvas/scene';
 import { setupInputs } from './canvas/input';
 import { chooseMove } from './ai/engine';
 import { createAttract, resetAttract, stepAttract } from './ai/attractDemo';
+import { GithubAttribution } from './components/GithubAttribution';
 import { KeyboardHintsToggle } from './components/KeyboardHintsToggle';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ResetConfirmModal } from './components/ResetConfirmModal';
@@ -49,14 +50,36 @@ const App = () => {
   const timersEnabled = useGameStore((s) => s.timersEnabled);
   const incTimer = useGameStore((s) => s.incTimer);
 
-  // Kick off the @font-face download. Canvas font references don't always
-  // trigger a fetch on their own; the rAF loop will pick up the real font
-  // on whatever frame fires after the network request resolves.
+  // Warm both Google Fonts used by the canvas. Canvas font references don't
+  // always trigger a fetch on their own; the rAF loop will pick up the real
+  // font on whatever frame fires after the network request resolves. We
+  // explicitly request representative sizes/weights so the right files get
+  // pulled rather than the bundle's tiny fallback metrics.
   useEffect(() => {
-    document.fonts.load('36px "Lilita One"').catch(() => {
+    Promise.all([
+      document.fonts.load('800 36px "Poppins"'),
+      document.fonts.load('500 16px "Inter"'),
+      document.fonts.load('700 14px "Inter"'),
+    ]).catch(() => {
       /* fallback to system-ui is acceptable */
     });
   }, []);
+
+  // Global "?" shortcut to toggle keyboard hints. Lives at the document level
+  // so it works in every phase (setup, playing, finished, modals open). We
+  // bind on the React side rather than the canvas input handler because the
+  // canvas isn't always focused.
+  const toggleKeyboardHints = useGameStore((s) => s.toggleKeyboardHints);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === '?') {
+        event.preventDefault();
+        toggleKeyboardHints();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [toggleKeyboardHints]);
 
   // Wall-clock timer: ticks only while game is live AND timers are enabled.
   useEffect(() => {
@@ -365,6 +388,7 @@ const App = () => {
       </div>
       {gamePhase === 'setup' && <WelcomeModal />}
       {showResetConfirm && gamePhase === 'playing' && <ResetConfirmModal />}
+      <GithubAttribution />
     </div>
   );
 };
