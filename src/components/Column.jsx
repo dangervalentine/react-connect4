@@ -1,63 +1,42 @@
-import PropTypes from 'prop-types';
-import React from 'react';
-
 import Cell from './Cell';
+import { useGameStore } from '../store';
 
-const Column = props => {
-  const {
-    addPiece,
-    isPlaying,
-    columnIndex,
-    columnValues,
-    winningPieces,
-    currentPlayer
-  } = props;
+const Column = ({ columnIndex }) => {
+  const isPlaying = useGameStore((state) => state.isPlaying);
+  const currentPlayer = useGameStore((state) => state.currentPlayer);
+  // gameBoard[columnIndex] keeps its reference until this column is mutated,
+  // so this selector only triggers a re-render when *this* column changes.
+  const columnValues = useGameStore((state) => state.gameBoard[columnIndex]);
+  const winningPieces = useGameStore((state) => state.winningPieces);
+  const addPiece = useGameStore((state) => state.addPiece);
 
-  let firstFreeCell =
-    [...columnValues].findIndex(cellValue => cellValue !== 0) - 1;
-  // Initial value with no selected cells will be -2
-  firstFreeCell = firstFreeCell === -2 ? 5 : firstFreeCell;
+  // Top-most empty slot. -1 means the column is full.
+  const firstEmpty = columnValues.findIndex((v) => v !== 0) - 1;
+  const firstFreeCell = firstEmpty === -2 ? columnValues.length - 1 : firstEmpty;
+  const canDrop = isPlaying && firstFreeCell >= 0;
 
-  const hasWinningPieces =
-    winningPieces.length > 0 &&
-    winningPieces.some(winningPeice => winningPeice.column === columnIndex);
-
-  const cells = columnValues.map((cellValue, i) => {
-    const isFirstFreeCell = isPlaying && i === firstFreeCell;
-    const isWinningPiece =
-      hasWinningPieces &&
-      winningPieces.some(x => x.row === i && x.column === columnIndex);
-
-    return (
-      <Cell
-        key={i}
-        cellIndex={i}
-        cellValue={cellValue}
-        columnIndex={columnIndex}
-        winningPiece={isWinningPiece}
-        currentPlayer={currentPlayer}
-        isFirstFreeCell={isFirstFreeCell}
-      />
-    );
-  });
+  const columnHasWinner = winningPieces.some((p) => p.column === columnIndex);
 
   return (
     <div
       className="column"
-      onClick={() => addPiece(firstFreeCell, columnIndex)}
+      onClick={canDrop ? () => addPiece(firstFreeCell, columnIndex) : undefined}
+      data-disabled={!canDrop}
     >
-      {cells}
+      {columnValues.map((cellValue, rowIndex) => (
+        <Cell
+          key={rowIndex}
+          cellValue={cellValue}
+          currentPlayer={currentPlayer}
+          isFirstFreeCell={isPlaying && rowIndex === firstFreeCell}
+          winningPiece={
+            columnHasWinner &&
+            winningPieces.some((p) => p.row === rowIndex && p.column === columnIndex)
+          }
+        />
+      ))}
     </div>
   );
-};
-
-Column.propTypes = {
-  addPiece: PropTypes.func.isRequired,
-  isPlaying: PropTypes.bool.isRequired,
-  columnIndex: PropTypes.number.isRequired,
-  columnValues: PropTypes.array.isRequired,
-  winningPieces: PropTypes.array.isRequired,
-  currentPlayer: PropTypes.number.isRequired
 };
 
 export default Column;

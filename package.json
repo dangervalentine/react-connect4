@@ -1,8 +1,8 @@
 {
   "name": "react-connect4",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "A remaking of the classic Connect 4 game, using React, Vite and Redux",
+  "description": "A remaking of the classic Connect 4 game, using React, Vite and Zustand",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,12 +20,9 @@
   },
   "homepage": "https://github.com/victoriousj/react-connect4#readme",
   "dependencies": {
-    "prop-types": "^15.8.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-redux": "^9.2.0",
-    "react-transition-group": "^4.4.5",
-    "redux": "^5.0.1"
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

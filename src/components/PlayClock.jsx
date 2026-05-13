@@ -1,16 +1,18 @@
-import PropTypes from 'prop-types';
-import React from 'react';
+import { useGameStore } from '../store';
 
-const PlayClock = props => (
-  <div className="playclock">
-    <h2>Player {props.player} Time:</h2>
-    <div className="playclock-time"> {props.time} </div>
-  </div>
-);
+const PlayClock = ({ player }) => {
+  // Each clock subscribes to only its own time slice, so the idle player's
+  // clock doesn't re-render every tick.
+  const time = useGameStore((state) =>
+    player === 1 ? state.playerOneTime : state.playerTwoTime
+  );
 
-PlayClock.propTypes = {
-  player: PropTypes.number.isRequired,
-  time: PropTypes.number.isRequired
+  return (
+    <div className="playclock">
+      <h2>Player {player} Time:</h2>
+      <div className="playclock-time">{time}</div>
+    </div>
+  );
 };
 
 export default PlayClock;
