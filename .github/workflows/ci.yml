@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - master
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          # cache: npm  # re-enable once a package-lock.json is committed
+
+      # Use `npm install` until a lockfile is committed; switch to `npm ci` after.
+      - run: npm install --no-audit --no-fund
+
+      - run: npm run lint
+
+      - run: npm run build
