@@ -102,7 +102,10 @@ const initialState: GameState = {
   gamePhase: 'setup',
   ...defaultConfig,
   aiPlayer: null,
-  keyboardHintsVisible: false,
+  // Keyboard hints default ON — they're an accessibility affordance, and
+  // turning them off is a deliberate choice the user can make via the
+  // viewport toggle (or by pressing "?"). Defaulting off hid useful info.
+  keyboardHintsVisible: true,
   ...freshBoardState(),
 };
 

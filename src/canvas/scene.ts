@@ -70,6 +70,17 @@ const colorFor = (player: Player): string =>
 const softColorFor = (player: Player): string =>
   player === 1 ? C.pieceRedSoft : C.pieceBlackSoft;
 
+/*
+ * Font stacks for canvas-painted text. Poppins handles the display title
+ * (chunky, geometric); Inter handles all other UI text (labels, buttons,
+ * banner messages). Both come from Google Fonts via the <link> in
+ * index.html; system-ui stays in the stack as a fallback during the
+ * font-display:swap window or if the network fetch fails.
+ */
+const FONT_DISPLAY = '"Poppins", system-ui, -apple-system, sans-serif';
+const FONT_UI = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const FONT_MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
+
 // ───────────────────────── primitives ─────────────────────────
 
 const roundedRectPath = (
@@ -609,7 +620,7 @@ const drawClocks = (
     ctx.fillStyle = C.textOnBlue;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.font = `${12 * scale}px system-ui, sans-serif`;
+    ctx.font = `600 ${11 * scale}px ${FONT_UI}`;
     ctx.fillText(
       isAi ? `PLAYER ${player} (CPU)` : `PLAYER ${player}`,
       cx,
@@ -617,7 +628,7 @@ const drawClocks = (
     );
 
     // Time value, formatted M:SS.
-    ctx.font = `${36 * scale}px ui-monospace, "SF Mono", Menlo, monospace`;
+    ctx.font = `${34 * scale}px ${FONT_MONO}`;
     ctx.textBaseline = 'middle';
     ctx.fillText(formatTime(times[i]), cx, clocks.top + clocks.cardHeight / 2 + 8 * scale);
   }
@@ -650,7 +661,7 @@ const drawTurnIndicator = (
   ctx.fillStyle = C.textOnBlue;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = `${22 * scale}px system-ui, sans-serif`;
+  ctx.font = `500 ${22 * scale}px ${FONT_UI}`;
   const isAi = state.aiPlayer === player;
   const label = state.isPlaying
     ? `Player ${player}${isAi ? ' (CPU)' : ''}'s turn`
@@ -664,22 +675,48 @@ const drawMenuButton = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
   anim: AnimState,
+  showKbdHint: boolean,
 ): void => {
   const b = layout.menuButton;
   const hovered = anim.menuHovered;
+  const s = layout.scale;
 
   roundedRectPath(ctx, b.x, b.y, b.width, b.height, b.radius);
   ctx.fillStyle = hovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.18)';
   ctx.fill();
-  ctx.lineWidth = 1 * layout.scale;
+  ctx.lineWidth = 1 * s;
   ctx.strokeStyle = hovered ? C.boardBlue : 'rgba(255, 255, 255, 0.5)';
   ctx.stroke();
 
   ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${12 * layout.scale}px system-ui, sans-serif`;
+  ctx.font = `600 ${11 * s}px ${FONT_UI}`;
   ctx.fillText('MENU', b.x + b.width / 2, b.y + b.height / 2 + 1);
+
+  // Below the button: small kbd-style chip with "Esc" so keyboard users can
+  // see the shortcut without hovering. Painted only when the user has the
+  // keyboard hints toggle on. Sized + styled to match the DOM-side
+  // <kbd> glyphs in the modal hint footers.
+  if (showKbdHint) {
+    const chipW = 38 * s;
+    const chipH = 17 * s;
+    const chipX = b.x + (b.width - chipW) / 2;
+    const chipY = b.y + b.height + 6 * s;
+    const chipR = 4 * s;
+
+    roundedRectPath(ctx, chipX, chipY, chipW, chipH, chipR);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fill();
+    // Slightly darker bottom edge to fake the "physical key" feel.
+    ctx.lineWidth = 1 * s;
+    ctx.strokeStyle = 'rgba(20, 33, 61, 0.25)';
+    ctx.stroke();
+
+    ctx.fillStyle = '#14213d';
+    ctx.font = `600 ${10 * s}px ${FONT_UI}`;
+    ctx.fillText('Esc', chipX + chipW / 2, chipY + chipH / 2 + 1);
+  }
 };
 
 /**
@@ -703,7 +740,7 @@ const drawThinkingIndicator = (
   ctx.fillStyle = C.textOnBlue;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${13 * scale}px system-ui, sans-serif`;
+  ctx.font = `500 ${13 * scale}px ${FONT_UI}`;
   ctx.fillText('CPU thinking…', cx, cy);
   ctx.restore();
 };
@@ -724,7 +761,7 @@ const drawColumnKeyHints = (
   // Position: just above the top arch of the board.
   const labelY = board.y - 6 * scale;
   ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
-  ctx.font = `bold ${13 * scale}px system-ui, -apple-system, sans-serif`;
+  ctx.font = `700 ${13 * scale}px ${FONT_UI}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   for (let col = 0; col < COLUMNS; col++) {
@@ -746,7 +783,9 @@ const drawBoardTitle = (
   ctx.fillStyle = C.pieceRed;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${36 * scale}px "Lilita One", system-ui, sans-serif`;
+  // Poppins 800 ExtraBold mimics the chunky display weight of the previous
+  // Lilita One choice without needing a separate font file.
+  ctx.font = `800 ${36 * scale}px ${FONT_DISPLAY}`;
   ctx.fillText('CONNECT4', cx, cy);
 };
 
@@ -815,7 +854,7 @@ const drawEndBanner = (
   ctx.fillStyle = C.textOnCard;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = `bold ${22 * layout.scale}px system-ui, -apple-system, sans-serif`;
+  ctx.font = `700 ${22 * layout.scale}px ${FONT_UI}`;
   ctx.fillText(message, card.x + stripeWidth + 16 * layout.scale, cardCy);
 
   // Menu button on the right.
@@ -833,7 +872,7 @@ const drawEndBanner = (
   ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${15 * layout.scale}px system-ui, sans-serif`;
+  ctx.font = `600 ${15 * layout.scale}px ${FONT_UI}`;
   ctx.fillText('Menu', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
 
   ctx.restore();
@@ -955,9 +994,10 @@ export const paint = (
   drawBoardTitle(ctx, layout);
 
   // 11. In-game MENU button (top-right). Hidden once the win/draw banner
-  //     is up — that banner has its own Menu button.
+  //     is up — that banner has its own Menu button. The Esc-kbd hint chip
+  //     below it shows only when the user has keyboard hints enabled.
   if (!state.showOverlay && state.gamePhase === 'playing') {
-    drawMenuButton(ctx, layout, anim);
+    drawMenuButton(ctx, layout, anim, state.keyboardHintsVisible);
   }
 
   // 12. AI "thinking" pulse, layered above the board but below the banner.
