@@ -1,11 +1,14 @@
 /**
- * Small attribution pill in the bottom-right corner linking to the source
- * repository. Opens in a new tab; styled to be unobtrusive (low-contrast
- * background, smaller font) so it doesn't compete with gameplay UI.
+ * Small attribution pill in the bottom-right corner crediting the repo
+ * author and linking to the source. Combines the homage ("Built by Vic")
+ * with the action ("on GitHub") in one self-contained badge.
  *
- * Hidden on very narrow viewports via CSS to keep the bottom corner clean
- * on phones. Sits below the modal backdrop in z-order — it's reference
- * material, not gameplay UI that needs to remain clickable through a modal.
+ * Opens in a new tab; styled to be unobtrusive (low-contrast background,
+ * smaller font) so it doesn't compete with gameplay UI. Hidden on very
+ * narrow viewports via CSS to keep the bottom corner clean on phones.
+ *
+ * Sits below the modal backdrop in z-order — it's reference material,
+ * not gameplay UI that needs to remain clickable through a modal.
  */
 export const GithubAttribution = () => (
   <a
@@ -13,7 +16,7 @@ export const GithubAttribution = () => (
     href="https://github.com/dangervalentine/react-connect4"
     target="_blank"
     rel="noopener noreferrer"
-    aria-label="View source on GitHub (opens in a new tab)"
+    aria-label="Built by @dangervalentine — view source on GitHub (opens in a new tab)"
   >
     {/*
       Inline GitHub mark — keeps the corner badge self-contained without
@@ -40,6 +43,8 @@ export const GithubAttribution = () => (
         1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
       />
     </svg>
-    <span>View source on GitHub</span>
+    <span>
+      Built by <strong>@dangervalentine</strong> · GitHub
+    </span>
   </a>
 );
