@@ -6,8 +6,7 @@ import PlayClock from './components/PlayClock';
 import MessageOverlay from './components/MessageOverlay';
 
 import { useGameStore } from './store';
-
-const COLUMN_COUNT = 7;
+import { COLUMNS } from './constants';
 
 const App = () => {
   const isPlaying = useGameStore((state) => state.isPlaying);
@@ -16,12 +15,12 @@ const App = () => {
 
   // Only run the wall-clock while the game is live; clean up on unmount or pause.
   useEffect(() => {
-    if (!isPlaying) return undefined;
-    const id = setInterval(incTimer, 1000);
-    return () => clearInterval(id);
+    if (!isPlaying) return;
+    const id = window.setInterval(incTimer, 1000);
+    return () => window.clearInterval(id);
   }, [isPlaying, incTimer]);
 
-  const columns = Array.from({ length: COLUMN_COUNT }, (_, index) => (
+  const columns = Array.from({ length: COLUMNS }, (_, index) => (
     <Column key={index} columnIndex={index} />
   ));
 

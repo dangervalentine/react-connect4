@@ -1,7 +1,12 @@
 import Cell from './Cell';
 import { useGameStore } from '../store';
+import { ROWS } from '../constants';
 
-const Column = ({ columnIndex }) => {
+type ColumnProps = {
+  columnIndex: number;
+};
+
+const Column = ({ columnIndex }: ColumnProps) => {
   const isPlaying = useGameStore((state) => state.isPlaying);
   const currentPlayer = useGameStore((state) => state.currentPlayer);
   // gameBoard[columnIndex] keeps its reference until this column is mutated,
@@ -10,9 +15,9 @@ const Column = ({ columnIndex }) => {
   const winningPieces = useGameStore((state) => state.winningPieces);
   const addPiece = useGameStore((state) => state.addPiece);
 
-  // Top-most empty slot. -1 means the column is full.
+  // Top-most empty slot; -1 means the column is full.
   const firstEmpty = columnValues.findIndex((v) => v !== 0) - 1;
-  const firstFreeCell = firstEmpty === -2 ? columnValues.length - 1 : firstEmpty;
+  const firstFreeCell = firstEmpty === -2 ? ROWS - 1 : firstEmpty;
   const canDrop = isPlaying && firstFreeCell >= 0;
 
   const columnHasWinner = winningPieces.some((p) => p.column === columnIndex);
