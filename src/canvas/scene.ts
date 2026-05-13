@@ -353,37 +353,24 @@ const drawOverlay = (
   ctx.scale(scale, scale);
   ctx.translate(-cardCx, -cardCy);
 
-  // Drop shadow.
+  // Card body (cream) — single rounded rect with a drop shadow.
+  ctx.save();
   ctx.shadowColor = C.cardShadow;
   ctx.shadowBlur = 24 * layout.scale;
   ctx.shadowOffsetY = 8 * layout.scale;
-
-  // Top half (blue band).
-  roundedRectPath(ctx, card.x, card.y, card.width, card.height / 2, card.radius);
-  ctx.fillStyle = C.boardBlue;
-  ctx.fill();
-
-  // Bottom half (card bg).
-  ctx.shadowColor = 'transparent';
-  ctx.beginPath();
-  ctx.rect(card.x, card.y + card.height / 2, card.width, card.height / 2 - card.radius);
-  // Rounded bottom corners.
-  ctx.moveTo(card.x, card.y + card.height - card.radius);
-  ctx.quadraticCurveTo(
-    card.x,
-    card.y + card.height,
-    card.x + card.radius,
-    card.y + card.height,
-  );
-  ctx.lineTo(card.x + card.width - card.radius, card.y + card.height);
-  ctx.quadraticCurveTo(
-    card.x + card.width,
-    card.y + card.height,
-    card.x + card.width,
-    card.y + card.height - card.radius,
-  );
+  roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
   ctx.fillStyle = C.cardBg;
   ctx.fill();
+  ctx.restore();
+
+  // Blue top half — fill a rectangle clipped to the card's rounded shape so
+  // the top corners stay rounded while the bottom edge is a clean divider.
+  ctx.save();
+  roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
+  ctx.clip();
+  ctx.fillStyle = C.boardBlue;
+  ctx.fillRect(card.x, card.y, card.width, card.height / 2);
+  ctx.restore();
 
   // Message text.
   const message = state.isDraw
