@@ -65,14 +65,18 @@ const App = () => {
     });
   }, []);
 
-  // Global "?" shortcut to toggle keyboard hints. Lives at the document level
-  // so it works in every phase (setup, playing, finished, modals open). We
-  // bind on the React side rather than the canvas input handler because the
+  // Global "K" shortcut to toggle keyboard hints. Single key (no Shift+/
+  // gymnastics) and mnemonic for "Keyboard". Lives at the document level so
+  // it works in every phase (setup, playing, finished, modals open). Bound
+  // on the React side rather than the canvas input handler because the
   // canvas isn't always focused.
   const toggleKeyboardHints = useGameStore((s) => s.toggleKeyboardHints);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === '?') {
+      // Ignore modifier-combos so we don't fight browser shortcuts like
+      // Ctrl/Cmd+K (URL bar focus, etc).
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === 'k' || event.key === 'K') {
         event.preventDefault();
         toggleKeyboardHints();
       }
