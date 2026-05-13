@@ -220,6 +220,9 @@ const drawHover = (
   anim: AnimState,
 ): void => {
   if (!state.isPlaying) return;
+  // Don't show a hover indicator while it's the AI's turn — the human can't
+  // act, so a ghost piece would be misleading.
+  if (state.aiPlayer !== null && state.currentPlayer === state.aiPlayer) return;
   if (anim.hoveredColumn === null) return;
   const col = anim.hoveredColumn;
 
@@ -249,7 +252,17 @@ const drawHover = (
   ctx.restore();
 };
 
-// ───────────────────────── clocks ─────────────────────────
+// ───────────────────────── clocks / turn indicator ─────────────────────────
+
+/**
+ * Format `seconds` as M:SS. Once you're a few minutes in, raw second-counts
+ * stop being legible at a glance.
+ */
+const formatTime = (seconds: number): string => {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 const drawClocks = (
   ctx: CanvasRenderingContext2D,
@@ -289,18 +302,108 @@ const drawClocks = (
       );
     }
 
-    // Label.
+    // Label — append "(CPU)" so it's clear who's the AI.
+    const isAi = state.aiPlayer === player;
     ctx.fillStyle = C.textOnBlue;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.font = `${12 * scale}px system-ui, sans-serif`;
-    ctx.fillText(`PLAYER ${player} TIME`, cx, clocks.top + 14 * scale);
+    ctx.fillText(
+      isAi ? `PLAYER ${player} (CPU)` : `PLAYER ${player}`,
+      cx,
+      clocks.top + 14 * scale,
+    );
 
-    // Time value.
+    // Time value, formatted M:SS.
     ctx.font = `${36 * scale}px ui-monospace, "SF Mono", Menlo, monospace`;
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(times[i]), cx, clocks.top + clocks.cardHeight / 2 + 8 * scale);
+    ctx.fillText(formatTime(times[i]), cx, clocks.top + clocks.cardHeight / 2 + 8 * scale);
   }
+};
+
+/**
+ * Minimalist turn indicator used when timers are off. Centered in the band
+ * where the clocks would otherwise live — a single colored disc + the active
+ * player's label, with a small "(CPU)" suffix if it's the AI's turn.
+ */
+const drawTurnIndicator = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  state: GameState,
+): void => {
+  const { clocks, scale } = layout;
+  const cx = layout.width / 2;
+  const cy = clocks.top + clocks.cardHeight / 2;
+
+  const player = state.currentPlayer;
+  const radius = 18 * scale;
+  // Disc with a thin white outline for legibility on the blue background.
+  circlePath(ctx, cx - 90 * scale, cy, radius);
+  ctx.fillStyle = colorFor(player);
+  ctx.fill();
+  ctx.lineWidth = 2 * scale;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.stroke();
+
+  ctx.fillStyle = C.textOnBlue;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${22 * scale}px system-ui, sans-serif`;
+  const isAi = state.aiPlayer === player;
+  const label = state.isPlaying
+    ? `Player ${player}${isAi ? ' (CPU)' : ''}'s turn`
+    : `Player ${player}${isAi ? ' (CPU)' : ''}`;
+  ctx.fillText(label, cx - 60 * scale, cy);
+};
+
+// ───────────────────────── in-game menu button + thinking indicator ─────────────────────────
+
+const drawMenuButton = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  anim: AnimState,
+): void => {
+  const b = layout.menuButton;
+  const hovered = anim.menuHovered;
+
+  roundedRectPath(ctx, b.x, b.y, b.width, b.height, b.radius);
+  ctx.fillStyle = hovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.18)';
+  ctx.fill();
+  ctx.lineWidth = 1 * layout.scale;
+  ctx.strokeStyle = hovered ? C.boardBlue : 'rgba(255, 255, 255, 0.5)';
+  ctx.stroke();
+
+  ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${12 * layout.scale}px system-ui, sans-serif`;
+  ctx.fillText('MENU', b.x + b.width / 2, b.y + b.height / 2 + 1);
+};
+
+/**
+ * Subtle pulsing "Thinking…" tag while the AI computes a move. Lives just
+ * below the clock band, centered — short-lived so it doesn't dominate.
+ */
+const drawThinkingIndicator = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  now: number,
+): void => {
+  const { scale } = layout;
+  const cx = layout.width / 2;
+  const cy = layout.clocks.top + layout.clocks.cardHeight + 14 * scale;
+  // 0..1 pulse over a ~1.2s period.
+  const phase = (now % 1200) / 1200;
+  const alpha = 0.55 + 0.45 * Math.sin(phase * Math.PI * 2);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = C.textOnBlue;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${13 * scale}px system-ui, sans-serif`;
+  ctx.fillText('CPU thinking…', cx, cy);
+  ctx.restore();
 };
 
 // ───────────────────────── board title ─────────────────────────
@@ -411,12 +514,26 @@ export const paint = (
   anim: AnimState,
   now: number,
 ): void => {
-  // 1. Background.
+  // 1. Background. Always painted; everything else stacks on top.
   ctx.fillStyle = C.boardBlue;
   ctx.fillRect(0, 0, layout.width, layout.height);
 
-  // 2. Clocks (drawn before the board, in the band above it).
-  drawClocks(ctx, layout, state);
+  // During the welcome modal we hold the canvas mostly blank — a full DOM
+  // modal sits in front, and rendering pieces/clocks here would be visual
+  // noise behind it. We still paint the board so the canvas isn't an empty
+  // rectangle if the modal is dismissed via Escape.
+  if (state.gamePhase === 'setup') {
+    drawBoardWithHoles(ctx, layout);
+    drawBoardTitle(ctx, layout);
+    return;
+  }
+
+  // 2. Clocks or minimal turn indicator, depending on config.
+  if (state.timersEnabled) {
+    drawClocks(ctx, layout, state);
+  } else {
+    drawTurnIndicator(ctx, layout, state);
+  }
 
   // 3. Pieces — drawn in their current positions (some may be above the
   //    board area mid-drop; those will remain visible since the yellow board
@@ -435,6 +552,17 @@ export const paint = (
   // 6. "CONNECT4" title.
   drawBoardTitle(ctx, layout);
 
-  // 7. End-of-game overlay.
+  // 7. In-game MENU button (top-right). Hidden once the win/draw overlay is
+  //    up — that overlay has its own Reset button.
+  if (!state.showOverlay) {
+    drawMenuButton(ctx, layout, anim);
+  }
+
+  // 8. AI "thinking" pulse, layered above the board but below the overlay.
+  if (state.aiThinking) {
+    drawThinkingIndicator(ctx, layout, now);
+  }
+
+  // 9. End-of-game overlay.
   drawOverlay(ctx, layout, state, anim, now);
 };
