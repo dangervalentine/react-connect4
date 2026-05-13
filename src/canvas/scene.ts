@@ -136,13 +136,6 @@ const drawBackground = (
 const dropStartY = (layout: Layout): number =>
   layout.board.y - layout.cell.size * 1.5;
 
-const isWinningPiece = (
-  winningPieces: ReadonlyArray<WinningPiece>,
-  col: number,
-  row: number,
-): boolean =>
-  winningPieces.some((p) => p.column === col && p.row === row);
-
 /**
  * Paint a soft dark vignette at each cell position. Drawn between the canvas
  * background and the pieces so:

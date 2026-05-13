@@ -73,7 +73,6 @@ const App = () => {
 
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      // eslint-disable-next-line no-console
       console.error('2d context unavailable; the game cannot render.');
       return;
     }
