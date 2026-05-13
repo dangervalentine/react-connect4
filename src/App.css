@@ -1,27 +1,7 @@
 @font-face {
   font-family: 'Lilita One';
-  src: url(./resources/LilitaOne-Regular.ttf);
-}
-
-:root {
-  /* palette */
-  --board-yellow: #fbc02d;
-  --board-blue: #1565c0;
-  --piece-red: #f44336;
-  --piece-red-soft: #e57373;
-  --piece-black: #34495e;
-  --piece-black-soft: #757575;
-  --piece-winner: #ffffff;
-  --column-hover: #3498db;
-  --card-bg: #e9e9e9;
-  --text-on-blue: #ffffff;
-
-  /* motion */
-  --duration-drop: 500ms;
-  --duration-overlay: 200ms;
-  --duration-card: 300ms;
-  --ease-drop: cubic-bezier(0.34, 1.16, 0.64, 1);
-  --ease-card: cubic-bezier(0.16, 1, 0.3, 1);
+  src: url(./resources/LilitaOne-Regular.ttf) format('truetype');
+  font-display: swap;
 }
 
 *,
@@ -31,313 +11,61 @@
   user-select: none;
 }
 
-body {
+html,
+body,
+#root {
   margin: 0;
-  background-color: var(--board-blue);
+  padding: 0;
+  height: 100%;
+  background-color: #1565c0;
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
-/* ──────────────────────────── animations ──────────────────────────── */
-
-@keyframes piece-drop {
-  0%   { transform: translateY(-50vh); }
-  60%  { transform: translateY(0); }
-  72%  { transform: translateY(-1.2vh); }
-  85%  { transform: translateY(0); }
-  92%  { transform: translateY(-0.4vh); }
-  100% { transform: translateY(0); }
-}
-
-@keyframes overlay-fade-in {
-  from { background-color: rgba(0, 0, 0, 0); }
-  to   { background-color: rgba(0, 0, 0, 0.35); }
-}
-
-@keyframes card-pop-in {
-  from { opacity: 0; transform: translate(-50%, -60%) scale(0.94); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
-
-@keyframes winning-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 0 1.5vh rgba(255, 255, 255, 0);
-    transform: scale(1.06);
-  }
-}
-
-/* ──────────────────────────── overlay ──────────────────────────── */
-
-.message-overlay {
-  position: fixed;
-  inset: 0;
+.App {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
-  animation: overlay-fade-in var(--duration-overlay) ease-out both;
+  min-height: 100%;
+  padding: 1rem;
 }
 
-.message-container {
-  position: absolute;
-  width: 45vh;
-  height: 15vh;
-  min-width: 200px;
-  min-height: 70px;
-  background-color: var(--card-bg);
-  border-radius: 1vh;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
-  animation: card-pop-in var(--duration-card) var(--ease-card) both;
+/*
+ * The canvas wrap fixes the aspect ratio of the play surface. The canvas
+ * fills it 1:1 in CSS pixels; internally it's scaled by devicePixelRatio
+ * inside App.tsx for crisp rendering.
+ */
+.canvas-wrap {
+  position: relative;
+  /*
+   * Width is the smallest of: design max, viewport width minus margin, and
+   * the width that produces a height fitting the viewport. This keeps the
+   * board fully on screen on both wide desktops and short laptops alike,
+   * which a plain "max-width + max-height + aspect-ratio" combo doesn't.
+   */
+  width: min(700px, 90vw, calc((100vh - 2rem) * 7 / 8));
+  aspect-ratio: 7 / 8;
 }
 
-.message-top-half {
+canvas {
+  display: block;
   width: 100%;
-  height: 50%;
-  background-color: var(--board-blue);
+  height: 100%;
+  /* Prevent scroll/zoom gestures from interfering with column taps. */
+  touch-action: manipulation;
+}
+
+/*
+ * Visually-hidden Reset button. Still focusable and announced by screen
+ * readers; activated on Enter/Space. Mirrors the canvas-painted Reset.
+ */
+.sr-only {
   position: absolute;
-  inset: 0 0 auto 0;
-  color: var(--text-on-blue);
-  text-align: center;
-  font-family: sans-serif;
-  font-kerning: 3rem;
-  border-radius: 1vh 1vh 0 0;
-}
-
-.message-top-half h1 {
-  font-size: 1rem;
-}
-
-.message-bottom-half {
-  position: absolute;
-  inset: auto 0 0 0;
-  border-radius: 0 0 1vh 1vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  height: 50%;
-  background-color: var(--card-bg);
-}
-
-.message-button {
-  display: inline-block;
-  border-radius: 0.5vh;
-  padding: 0.75vh 2vh;
-  color: var(--text-on-blue);
-  background-color: var(--board-blue);
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: color 150ms ease-out, background-color 150ms ease-out, border-color 150ms ease-out;
-}
-
-.message-button:hover {
-  color: var(--board-blue);
-  background-color: var(--card-bg);
-  border-color: var(--board-blue);
-}
-
-.message-button:focus-visible {
-  outline: 2px solid var(--text-on-blue);
-  outline-offset: 2px;
-}
-
-/* ──────────────────────────── board ──────────────────────────── */
-
-.container {
-  width: 72vh;
-  height: 70vh;
-  display: flex;
-  flex-wrap: wrap;
-  margin: 10vh auto;
-  align-items: center;
-  flex-direction: row;
-  justify-content: center;
-}
-
-.container-body {
-  width: 72vh;
-  display: flex;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-  flex-direction: row;
-  justify-content: center;
-  border-left: 1.25vh solid var(--board-yellow);
-  border-right: 1.25vh solid var(--board-yellow);
-}
-
-.container-top {
-  width: 72vh;
-  height: 2.5vh;
-  background-color: var(--board-yellow);
-  border-radius: 2.5vh 2.5vh 0 0;
-}
-
-.container-bottom {
-  width: 72vh;
-  height: 10vh;
-  font-size: 5vh;
-  color: var(--piece-red);
-  text-align: center;
-  text-transform: uppercase;
-  background-color: var(--board-yellow);
-  border-radius: 0 0 2.5vh 2.5vh;
-  font-family: 'Lilita One', monospace;
-}
-
-/* ──────────────────────────── cell + piece ──────────────────────────── */
-
-.cell-parent {
-  position: relative;
-}
-
-.cell {
-  width: 10vh;
-  height: 10vh;
-  overflow: hidden;
-  position: relative;
-  visibility: visible;
-  align-items: center;
-  justify-content: center;
-}
-
-.cell::after {
-  top: 5%;
-  left: 5%;
-  width: 9vh;
-  z-index: 3;
-  height: 9vh;
-  content: '';
-  cursor: pointer;
-  border-radius: 50%;
-  position: absolute;
-  visibility: visible;
-  box-shadow: 0 0 0 10vh var(--board-yellow);
-}
-
-.cell::before {
-  top: 0.25vh;
-  left: 0.25vh;
-  content: '';
-  opacity: 0;
-  z-index: 3;
-  width: 9.5vh;
-  height: 9.5vh;
-  border-radius: 50%;
-  position: absolute;
-  visibility: visible;
-  background-color: #2980b9;
-  transition: opacity 200ms ease-out;
-}
-
-.column {
-  width: 10vh;
-  display: flex;
-  overflow: hidden;
-  position: relative;
-  flex-direction: column;
-}
-
-.column[data-disabled='true'] {
-  cursor: not-allowed;
-}
-
-.column::after {
-  top: 0;
-  left: 0;
-  content: '';
-  width: 10vh;
-  height: 60vh;
-  opacity: 0;
-  position: absolute;
-  background-color: var(--column-hover);
-  transition: opacity 200ms ease-out;
-  pointer-events: none;
-}
-
-@media (hover: hover) {
-  .column:not([data-disabled='true']):hover::after {
-    opacity: 1;
-  }
-  .column:not([data-disabled='true']):hover .cell.red.glow::before {
-    opacity: 1;
-    background-color: var(--piece-red-soft);
-  }
-  .column:not([data-disabled='true']):hover .cell.black.glow::before {
-    opacity: 1;
-    background-color: var(--piece-black-soft);
-  }
-}
-
-.player-piece {
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 10vh;
-  height: 10vh;
-  border-radius: 50%;
-  position: absolute;
-  visibility: visible;
-  animation: piece-drop var(--duration-drop) var(--ease-drop) both;
-}
-
-.player-piece.red {
-  background-color: var(--piece-red);
-}
-
-.player-piece.black {
-  background-color: var(--piece-black);
-}
-
-.player-piece.winning-piece {
-  background-color: var(--piece-winner);
-  animation:
-    piece-drop var(--duration-drop) var(--ease-drop) both,
-    winning-pulse 1.4s ease-in-out var(--duration-drop) infinite;
-}
-
-/* ──────────────────────────── play clocks ──────────────────────────── */
-
-.playclocks {
-  width: 50%;
-  display: flex;
-  margin: 0 auto;
-  text-align: center;
-  justify-content: space-around;
-}
-
-.playclock {
-  width: 20vh;
-  color: var(--text-on-blue);
-  border-radius: 1vh;
-  display: inline-block;
-  padding: 15px 10px 5px;
-  margin: -5px -10px -5px 10px;
-  background: rgba(52, 73, 94, 0.2);
-}
-
-.playclock-time {
-  font-size: 2em;
-  font-family: monospace;
-  font-variant-numeric: tabular-nums;
-}
-
-.playclock h2 {
-  margin: 0;
-  font-size: 0.6em;
-  font-weight: normal;
-  letter-spacing: 2px;
-}
-
-/* ──────────────────────────── a11y ──────────────────────────── */
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
