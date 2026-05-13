@@ -109,17 +109,22 @@ export const computeLayout = (width: number, height: number): Layout => {
   // metric. The container's CSS aspect-ratio is what really keeps things sane.
   void finalScale;
 
-  // ───── overlay ─────
-  const overlayCardWidth = Math.min(width * 0.72, 360 * scale);
-  const overlayCardHeight = 160 * scale;
-  const overlayCardX = (width - overlayCardWidth) / 2;
-  const overlayCardY = (height - overlayCardHeight) / 2;
-  const overlayCardRadius = 14 * scale;
+  // ───── end-game banner ─────
+  //
+  // Replaces the previous board-covering card. The banner now occupies the
+  // same vertical band as the clocks (top of canvas) so the board stays
+  // fully visible during the end-of-game pause and the menu prompt.
+  const overlayCardWidth = clocksTotalWidth;
+  const overlayCardHeight = clocksCardHeight;
+  const overlayCardX = clocksLeft;
+  const overlayCardY = clocksTop;
+  const overlayCardRadius = 12 * scale;
 
-  const buttonWidth = 140 * scale;
-  const buttonHeight = 42 * scale;
-  const buttonX = overlayCardX + (overlayCardWidth - buttonWidth) / 2;
-  const buttonY = overlayCardY + overlayCardHeight - buttonHeight - 18 * scale;
+  // Menu button sits inside the banner on the right edge.
+  const buttonWidth = 100 * scale;
+  const buttonHeight = 38 * scale;
+  const buttonX = overlayCardX + overlayCardWidth - buttonWidth - 14 * scale;
+  const buttonY = overlayCardY + (overlayCardHeight - buttonHeight) / 2;
   const buttonRadius = 8 * scale;
 
   // ───── in-game menu button (top-right) ─────
@@ -166,7 +171,7 @@ export const computeLayout = (width: number, height: number): Layout => {
         height: overlayCardHeight,
         radius: overlayCardRadius,
       },
-      messageY: overlayCardY + 56 * scale,
+      messageY: overlayCardY + overlayCardHeight / 2,
       button: {
         x: buttonX,
         y: buttonY,

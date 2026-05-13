@@ -3,11 +3,17 @@ import { useEffect, useRef } from 'react';
 import { useGameStore } from './store';
 import { COLUMNS, ROWS } from './constants';
 import { computeLayout, type Layout } from './canvas/layout';
-import { cellKey, createAnimState } from './canvas/animations';
+import {
+  cellKey,
+  createAnimState,
+  DROP_DURATION_MS,
+  winSequenceDuration,
+} from './canvas/animations';
 import { paint, paintAttract } from './canvas/scene';
 import { setupInputs } from './canvas/input';
 import { chooseMove } from './ai/engine';
 import { createAttract, resetAttract, stepAttract } from './ai/attractDemo';
+import { KeyboardHintsToggle } from './components/KeyboardHintsToggle';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ResetConfirmModal } from './components/ResetConfirmModal';
 
@@ -67,7 +73,6 @@ const App = () => {
 
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      // eslint-disable-next-line no-console
       console.error('2d context unavailable; the game cannot render.');
       return;
     }
@@ -108,7 +113,30 @@ const App = () => {
     };
     seedFromBoard();
 
-    // Watch the store for new pieces / overlay transitions.
+    // ── win-sequence driver ──
+    //
+    // When a game ends, the store sets winner/winningPieces/gamePhase='finished'
+    // but DEFERS showOverlay so the user gets to see the winning pieces light
+    // up one by one before the banner appears. We:
+    //
+    //   1. Record `winSequenceStartedAt` offset by DROP_DURATION_MS so the
+    //      highlight doesn't begin until the winning piece has actually
+    //      landed (otherwise it'd be fading to white mid-air).
+    //   2. Schedule revealEndOverlay() to fire DROP + sequence ms later.
+    //
+    // A generation counter discards stale timers if the game is reset before
+    // the sequence completes (e.g. quickly through the MENU button).
+    let endRevealTimer: number | null = null;
+    let endRevealGen = 0;
+
+    const cancelPendingReveal = () => {
+      if (endRevealTimer !== null) {
+        window.clearTimeout(endRevealTimer);
+        endRevealTimer = null;
+      }
+    };
+
+    // Watch the store for new pieces / overlay transitions / game-end transitions.
     const unsubscribeAnim = useGameStore.subscribe((state, prev) => {
       const now = performance.now();
 
@@ -125,6 +153,27 @@ const App = () => {
             }
           }
         }
+      }
+
+      // Game just ended: kick off the win sequence + schedule the banner.
+      if (state.gamePhase === 'finished' && prev.gamePhase === 'playing') {
+        anim.winSequenceStartedAt = now + DROP_DURATION_MS;
+        const totalDelay =
+          DROP_DURATION_MS + winSequenceDuration(state.winningPieces.length);
+        const myGen = ++endRevealGen;
+        cancelPendingReveal();
+        endRevealTimer = window.setTimeout(() => {
+          endRevealTimer = null;
+          if (myGen !== endRevealGen) return;
+          useGameStore.getState().revealEndOverlay();
+        }, totalDelay);
+      }
+
+      // Game restarted or returned to setup: scrub the win sequence.
+      if (state.gamePhase !== 'finished' && prev.gamePhase === 'finished') {
+        anim.winSequenceStartedAt = null;
+        ++endRevealGen;
+        cancelPendingReveal();
       }
 
       if (state.showOverlay && !prev.showOverlay) {
@@ -284,6 +333,7 @@ const App = () => {
       unsubscribeAi();
       unsubscribePhase();
       cancelPendingAi();
+      cancelPendingReveal();
       stopAttract();
     };
   }, []);
@@ -294,10 +344,11 @@ const App = () => {
 
   return (
     <div className="App">
+      <KeyboardHintsToggle />
       <div ref={wrapRef} className="canvas-wrap">
         <canvas ref={canvasRef} aria-label="Connect 4 game board" role="img" />
         {/*
-          Visually-hidden Reset button. The visible Reset is canvas-painted;
+          Visually-hidden Menu button. The visible button is canvas-painted;
           this one exists purely so screen-reader / keyboard-only users can
           still finish a game. autoFocus pulls focus when the overlay opens.
         */}
