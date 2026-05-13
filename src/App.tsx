@@ -4,9 +4,10 @@ import { useGameStore } from './store';
 import { COLUMNS, ROWS } from './constants';
 import { computeLayout, type Layout } from './canvas/layout';
 import { cellKey, createAnimState } from './canvas/animations';
-import { paint } from './canvas/scene';
+import { paint, paintAttract } from './canvas/scene';
 import { setupInputs } from './canvas/input';
 import { chooseMove } from './ai/engine';
+import { createAttract, resetAttract, stepAttract } from './ai/attractDemo';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ResetConfirmModal } from './components/ResetConfirmModal';
 
@@ -37,7 +38,7 @@ const App = () => {
   const showOverlay = useGameStore((s) => s.showOverlay);
   const winner = useGameStore((s) => s.winner);
   const isDraw = useGameStore((s) => s.isDraw);
-  const resetGame = useGameStore((s) => s.resetGame);
+  const openSetup = useGameStore((s) => s.openSetup);
   const isPlaying = useGameStore((s) => s.isPlaying);
   const timersEnabled = useGameStore((s) => s.timersEnabled);
   const incTimer = useGameStore((s) => s.incTimer);
@@ -215,9 +216,62 @@ const App = () => {
       store: useGameStore,
     });
 
+    // ── attract demo ──
+    //
+    // While the welcome modal is open we run a self-playing easy-vs-easy game
+    // behind it. Pieces drop on the canvas as a subtle ambient animation, get
+    // visually muted by the modal's blurred backdrop, and reset between
+    // matches. The attract owns its own board / anim state so the real game
+    // (which lives in the store) is untouched until `startGame` runs.
+    const attract = createAttract();
+    const ATTRACT_TICK_MS = 850;
+    let attractTimerId: number | null = null;
+
+    const startAttract = () => {
+      if (attractTimerId !== null) return;
+      attractTimerId = window.setInterval(() => {
+        stepAttract(attract, performance.now());
+      }, ATTRACT_TICK_MS);
+    };
+
+    const stopAttract = () => {
+      if (attractTimerId !== null) {
+        window.clearInterval(attractTimerId);
+        attractTimerId = null;
+      }
+      resetAttract(attract);
+    };
+
+    // Kick off immediately if we mount into setup (initial load — almost
+    // always the case).
+    if (useGameStore.getState().gamePhase === 'setup') {
+      startAttract();
+    }
+
+    const unsubscribePhase = useGameStore.subscribe((state, prev) => {
+      if (state.gamePhase === prev.gamePhase) return;
+      if (state.gamePhase === 'setup') {
+        startAttract();
+      } else {
+        stopAttract();
+      }
+    });
+
     let rafId = 0;
     const tick = (now: number) => {
-      paint(ctx, layout, useGameStore.getState(), anim, now);
+      const state = useGameStore.getState();
+      if (state.gamePhase === 'setup') {
+        // Attract mode: separate paint path that ignores the store's board.
+        paintAttract(
+          ctx,
+          layout,
+          { gameBoard: attract.gameBoard, winningPieces: attract.winningPieces },
+          attract.anim,
+          now,
+        );
+      } else {
+        paint(ctx, layout, state, anim, now);
+      }
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
@@ -228,13 +282,15 @@ const App = () => {
       detachInputs();
       unsubscribeAnim();
       unsubscribeAi();
+      unsubscribePhase();
       cancelPendingAi();
+      stopAttract();
     };
   }, []);
 
   const overlayLabel = isDraw
-    ? 'Game ended in a draw. Press Enter to play again.'
-    : `Player ${winner ?? ''} wins. Press Enter to play again.`;
+    ? 'Game ended in a draw. Press Enter for menu.'
+    : `Player ${winner ?? ''} wins. Press Enter for menu.`;
 
   return (
     <div className="App">
@@ -249,7 +305,7 @@ const App = () => {
           <button
             type="button"
             className="sr-only"
-            onClick={resetGame}
+            onClick={openSetup}
             autoFocus
           >
             {overlayLabel}
