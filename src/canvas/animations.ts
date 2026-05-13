@@ -7,8 +7,10 @@ export type AnimState = {
   drops: Map<string, number>;
   /** Column the pointer is currently over, or null. */
   hoveredColumn: number | null;
-  /** True while the pointer is over the Reset button (canvas-rendered). */
+  /** True while the pointer is over the win/draw overlay's Reset button. */
   resetHovered: boolean;
+  /** True while the pointer is over the in-game MENU button (top-right). */
+  menuHovered: boolean;
   /** performance.now() when the win/draw overlay first appeared, or null. */
   overlayShownAt: number | null;
 };
@@ -17,6 +19,7 @@ export const createAnimState = (): AnimState => ({
   drops: new Map(),
   hoveredColumn: null,
   resetHovered: false,
+  menuHovered: false,
   overlayShownAt: null,
 });
 

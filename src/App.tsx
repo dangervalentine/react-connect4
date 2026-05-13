@@ -6,20 +6,40 @@ import { computeLayout, type Layout } from './canvas/layout';
 import { cellKey, createAnimState } from './canvas/animations';
 import { paint } from './canvas/scene';
 import { setupInputs } from './canvas/input';
+import { chooseMove } from './ai/engine';
+import { WelcomeModal } from './components/WelcomeModal';
+import { ResetConfirmModal } from './components/ResetConfirmModal';
+
+/** Top-most empty row index for column, or -1 if full. Mirrors input.ts. */
+const firstFreeRow = (column: ReadonlyArray<number>): number => {
+  const firstNonZero = column.findIndex((v) => v !== 0);
+  if (firstNonZero === -1) return ROWS - 1;
+  return firstNonZero - 1;
+};
+
+/**
+ * Minimum time the AI's move is held back. Two reasons:
+ *   1. Without it, hard-difficulty moves look like a vending machine —
+ *      instant responses break the illusion of "thinking".
+ *   2. It also gives our setupInputs gate (which checks aiThinking) time
+ *      to register, preventing rare race conditions if the user double-taps.
+ */
+const AI_THINK_MIN_MS = 350;
 
 const App = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Surface a couple of slices to React purely for a11y / cursor:
-  //   - showOverlay drives the screen-reader-only Reset button.
-  //   - winner / isDraw feed its accessible label.
-  // Everything *visible* is painted on the canvas.
+  // Surface the slices that React needs to render — everything else is read
+  // imperatively in the canvas loop or store subscribers.
+  const gamePhase = useGameStore((s) => s.gamePhase);
+  const showResetConfirm = useGameStore((s) => s.showResetConfirm);
   const showOverlay = useGameStore((s) => s.showOverlay);
   const winner = useGameStore((s) => s.winner);
   const isDraw = useGameStore((s) => s.isDraw);
   const resetGame = useGameStore((s) => s.resetGame);
   const isPlaying = useGameStore((s) => s.isPlaying);
+  const timersEnabled = useGameStore((s) => s.timersEnabled);
   const incTimer = useGameStore((s) => s.incTimer);
 
   // Kick off the @font-face download. Canvas font references don't always
@@ -31,12 +51,12 @@ const App = () => {
     });
   }, []);
 
-  // Wall-clock timer: only ticks while the game is live, cleaned up on pause.
+  // Wall-clock timer: ticks only while game is live AND timers are enabled.
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || !timersEnabled) return;
     const id = window.setInterval(incTimer, 1000);
     return () => window.clearInterval(id);
-  }, [isPlaying, incTimer]);
+  }, [isPlaying, timersEnabled, incTimer]);
 
   // Canvas setup: rAF loop, store subscription, resize handling, inputs.
   useEffect(() => {
@@ -88,7 +108,7 @@ const App = () => {
     seedFromBoard();
 
     // Watch the store for new pieces / overlay transitions.
-    const unsubscribe = useGameStore.subscribe((state, prev) => {
+    const unsubscribeAnim = useGameStore.subscribe((state, prev) => {
       const now = performance.now();
 
       if (state.gameBoard !== prev.gameBoard) {
@@ -113,6 +133,81 @@ const App = () => {
       }
     });
 
+    // ── AI turn driver ──
+    //
+    // Every relevant store update is examined: if it's now the AI's turn and
+    // we're not already mid-think, we schedule a move on a short timeout so
+    // it feels deliberate and the "thinking" indicator gets a frame to show.
+    //
+    // Cancellation: a pending timer is cleared whenever the precondition stops
+    // holding (player reset, game ended, returned to setup). A generation
+    // counter guards against the rare case where the timer's callback fires
+    // *just* after the game state changes but before our subscriber clears
+    // the timer.
+    let pendingAiTimer: number | null = null;
+    let aiGeneration = 0;
+
+    const cancelPendingAi = () => {
+      if (pendingAiTimer !== null) {
+        window.clearTimeout(pendingAiTimer);
+        pendingAiTimer = null;
+      }
+      // Drop the "thinking" flag too — leaving it set would keep the
+      // "CPU thinking…" indicator on screen indefinitely.
+      const s = useGameStore.getState();
+      if (s.aiThinking) s.setAiThinking(false);
+    };
+
+    type StoreState = ReturnType<typeof useGameStore.getState>;
+    const shouldAiPlay = (s: StoreState): boolean =>
+      s.gamePhase === 'playing' &&
+      s.isPlaying &&
+      s.aiPlayer !== null &&
+      s.currentPlayer === s.aiPlayer &&
+      // Pause AI while the user is staring at the reset-confirm dialog —
+      // otherwise a move would slip in behind the blurred backdrop and the
+      // game state on cancel wouldn't match what the user remembered.
+      !s.showResetConfirm;
+
+    const scheduleAiMove = () => {
+      const state = useGameStore.getState();
+      if (!shouldAiPlay(state)) return;
+      if (state.aiThinking || pendingAiTimer !== null) return;
+
+      const myGen = ++aiGeneration;
+      state.setAiThinking(true);
+
+      pendingAiTimer = window.setTimeout(() => {
+        pendingAiTimer = null;
+        const s = useGameStore.getState();
+        // Stale generation? The game state changed during the wait — abandon.
+        if (myGen !== aiGeneration || !shouldAiPlay(s)) {
+          if (s.aiThinking) s.setAiThinking(false);
+          return;
+        }
+        const col = chooseMove(s.gameBoard, s.currentPlayer, s.difficulty);
+        const row = firstFreeRow(s.gameBoard[col]);
+        if (row < 0) {
+          s.setAiThinking(false);
+          return;
+        }
+        s.addPiece(row, col);
+      }, AI_THINK_MIN_MS);
+    };
+
+    const unsubscribeAi = useGameStore.subscribe((state) => {
+      if (!shouldAiPlay(state)) {
+        cancelPendingAi();
+        return;
+      }
+      scheduleAiMove();
+    });
+
+    // Subscribers don't fire for initial state, so check once on mount in
+    // case the AI should be moving first (e.g. HMR preserved an in-progress
+    // PvE game). Microtask-delay to avoid surprises during effect setup.
+    queueMicrotask(scheduleAiMove);
+
     const detachInputs = setupInputs({
       canvas,
       getLayout: () => layout,
@@ -131,13 +226,15 @@ const App = () => {
       cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
       detachInputs();
-      unsubscribe();
+      unsubscribeAnim();
+      unsubscribeAi();
+      cancelPendingAi();
     };
   }, []);
 
   const overlayLabel = isDraw
-    ? 'Game ended in a draw. Press Enter to reset.'
-    : `Player ${winner ?? ''} wins. Press Enter to reset.`;
+    ? 'Game ended in a draw. Press Enter to play again.'
+    : `Player ${winner ?? ''} wins. Press Enter to play again.`;
 
   return (
     <div className="App">
@@ -159,6 +256,8 @@ const App = () => {
           </button>
         )}
       </div>
+      {gamePhase === 'setup' && <WelcomeModal />}
+      {showResetConfirm && gamePhase === 'playing' && <ResetConfirmModal />}
     </div>
   );
 };
