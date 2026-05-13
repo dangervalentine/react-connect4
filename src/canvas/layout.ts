@@ -57,6 +57,18 @@ export type Layout = {
       radius: number;
     };
   };
+
+  /**
+   * Small "MENU" button rendered in the top-right corner during gameplay.
+   * Opens the mid-game reset confirmation modal.
+   */
+  menuButton: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius: number;
+  };
 };
 
 const DESIGN_WIDTH = 700;
@@ -110,6 +122,13 @@ export const computeLayout = (width: number, height: number): Layout => {
   const buttonY = overlayCardY + overlayCardHeight - buttonHeight - 18 * scale;
   const buttonRadius = 8 * scale;
 
+  // ───── in-game menu button (top-right) ─────
+  const menuButtonWidth = 76 * scale;
+  const menuButtonHeight = 30 * scale;
+  const menuButtonX = width - menuButtonWidth - 16 * scale;
+  const menuButtonY = 16 * scale;
+  const menuButtonRadius = 6 * scale;
+
   return {
     width,
     height,
@@ -156,6 +175,13 @@ export const computeLayout = (width: number, height: number): Layout => {
         radius: buttonRadius,
       },
     },
+    menuButton: {
+      x: menuButtonX,
+      y: menuButtonY,
+      width: menuButtonWidth,
+      height: menuButtonHeight,
+      radius: menuButtonRadius,
+    },
   };
 };
 
@@ -186,5 +212,11 @@ export const columnAt = (layout: Layout, x: number, y: number): number | null =>
 /** True when the canvas point (x, y) lies inside the reset button rect. */
 export const isInResetButton = (layout: Layout, x: number, y: number): boolean => {
   const b = layout.overlay.button;
+  return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
+};
+
+/** True when (x, y) lies inside the in-game MENU button (top-right). */
+export const isInMenuButton = (layout: Layout, x: number, y: number): boolean => {
+  const b = layout.menuButton;
   return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
 };
