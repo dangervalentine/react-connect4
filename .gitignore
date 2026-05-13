@@ -2,6 +2,12 @@ node_modules/
 dist/
 *.local
 
+# Lock file — npm regenerates it in CI; not tracked in this repo.
+package-lock.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Editor / OS
 .DS_Store
 .idea/
