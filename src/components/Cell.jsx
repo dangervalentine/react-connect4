@@ -1,46 +1,27 @@
-import { useRef } from 'react';
-import { CSSTransition } from 'react-transition-group';
-import PropTypes from 'prop-types';
+const cx = (...classes) => classes.filter(Boolean).join(' ');
 
-const Cell = props => {
-  const { cellValue, winningPiece, isFirstFreeCell, currentPlayer } = props;
-  const pieceRef = useRef(null);
+const Cell = ({ cellValue, winningPiece, isFirstFreeCell, currentPlayer }) => {
+  const cellClassName = cx(
+    'cell',
+    isFirstFreeCell && 'glow',
+    currentPlayer === 1 ? 'red' : 'black'
+  );
 
-  const cellStyle = `
-    cell
-    ${isFirstFreeCell ? 'glow' : ''}
-    ${currentPlayer === 1 ? `red` : `black`}
-  `;
-
-  const playerPieceStyle = `
-    player-piece
-    peice-overlay
-    ${cellValue === 1 ? `red` : `black`}
-    ${winningPiece ? 'winning-piece' : ''}
-  `;
+  const pieceClassName = cx(
+    'player-piece',
+    cellValue === 1 ? 'red' : 'black',
+    winningPiece && 'winning-piece'
+  );
 
   return (
     <div className="cell-parent">
-      <div className={cellStyle} />
-      <CSSTransition
-        in={cellValue !== 0}
-        nodeRef={pieceRef}
-        classNames="slide"
-        timeout={{ enter: 500, exit: 300 }}
-        mountOnEnter
-        unmountOnExit
-      >
-        <div ref={pieceRef} className={playerPieceStyle} />
-      </CSSTransition>
+      <div className={cellClassName} />
+      {cellValue !== 0 && (
+        // key on cellValue so a reset (cellValue 1|2 → 0 → 1|2) replays the drop animation.
+        <div key={cellValue} className={pieceClassName} />
+      )}
     </div>
   );
-};
-
-Cell.propTypes = {
-  cellValue: PropTypes.number.isRequired,
-  winningPiece: PropTypes.bool.isRequired,
-  currentPlayer: PropTypes.number.isRequired,
-  isFirstFreeCell: PropTypes.bool.isRequired
 };
 
 export default Cell;

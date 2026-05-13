@@ -1,88 +1,40 @@
-import { bindActionCreators } from "redux";
-import { connect } from "react-redux";
-import PropTypes from "prop-types";
-import React from "react";
+import { useEffect } from 'react';
 
-import Column from "./components/Column";
-import Container from "./components/Container";
-import PlayClock from "./components/PlayClock";
-import MessageOverlay from "./components/MessageOverlay";
+import Column from './components/Column';
+import Container from './components/Container';
+import PlayClock from './components/PlayClock';
+import MessageOverlay from './components/MessageOverlay';
 
-import * as actionCreators from "./actions/interactions";
+import { useGameStore } from './store';
 
-class App extends React.Component {
-  static propTypes = {
-    isPlaying: PropTypes.bool.isRequired,
-    gameBoard: PropTypes.array.isRequired,
-    winningPieces: PropTypes.array.isRequired,
-    currentPlayer: PropTypes.number.isRequired
-  };
+const COLUMN_COUNT = 7;
 
-  constructor(props) {
-    super(props);
+const App = () => {
+  const isPlaying = useGameStore((state) => state.isPlaying);
+  const showOverlay = useGameStore((state) => state.showOverlay);
+  const incTimer = useGameStore((state) => state.incTimer);
 
-    const { dispatch } = props;
-    this.dispatch = dispatch;
+  // Only run the wall-clock while the game is live; clean up on unmount or pause.
+  useEffect(() => {
+    if (!isPlaying) return undefined;
+    const id = setInterval(incTimer, 1000);
+    return () => clearInterval(id);
+  }, [isPlaying, incTimer]);
 
-    this.incTimer = bindActionCreators(actionCreators.incTimer, dispatch);
-    this.addPiece = bindActionCreators(actionCreators.addPiece, dispatch);
-    this.resetGame = bindActionCreators(actionCreators.resetGame, dispatch);
-  }
+  const columns = Array.from({ length: COLUMN_COUNT }, (_, index) => (
+    <Column key={index} columnIndex={index} />
+  ));
 
-  componentDidMount() {
-    setInterval(this.incTimer, 1000);
-  }
-
-  render() {
-    const { props } = this;
-    const {
-      isPlaying,
-      currentPlayer,
-      winningPieces,
-      showOverlay,
-      playerOneTime,
-      playerTwoTime
-    } = props;
-
-    const columns = props.gameBoard.map((columnValues, index) => (
-      <Column
-        key={index}
-        columnIndex={index}
-        isPlaying={isPlaying}
-        addPiece={this.addPiece}
-        columnValues={columnValues}
-        currentPlayer={currentPlayer}
-        winningPieces={winningPieces}
-      />
-    ));
-
-    return (
-      <div className="App">
-        {showOverlay && (
-          <MessageOverlay
-            showOverlay={showOverlay}
-            resetGame={this.resetGame}
-            winningPlayer={currentPlayer}
-          />
-        )}
-        <div className="playclocks">
-          <PlayClock player={1} time={playerOneTime} />
-          <PlayClock player={2} time={playerTwoTime} />
-        </div>
-        <Container Columns={columns} />
+  return (
+    <div className="App">
+      {showOverlay && <MessageOverlay />}
+      <div className="playclocks">
+        <PlayClock player={1} />
+        <PlayClock player={2} />
       </div>
-    );
-  }
-}
+      <Container columns={columns} />
+    </div>
+  );
+};
 
-const mapStateToProps = state => ({
-  gameBoard: state.gameBoard,
-  isPlaying: state.isPlaying,
-  showOverlay: state.showOverlay,
-  currentPlayer: state.currentPlayer,
-  winningPieces: state.winningPieces,
-  playerOneTime: state.playerOneTime,
-  playerTwoTime: state.playerTwoTime
-});
-
-export default connect(mapStateToProps)(App);
+export default App;
