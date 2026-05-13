@@ -1,6 +1,11 @@
 import { useGameStore } from '../store';
+import type { Player } from '../constants';
 
-const PlayClock = ({ player }) => {
+type PlayClockProps = {
+  player: Player;
+};
+
+const PlayClock = ({ player }: PlayClockProps) => {
   // Each clock subscribes to only its own time slice, so the idle player's
   // clock doesn't re-render every tick.
   const time = useGameStore((state) =>
