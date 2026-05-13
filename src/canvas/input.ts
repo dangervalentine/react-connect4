@@ -1,7 +1,7 @@
 import type { useGameStore } from '../store';
 import { ROWS } from '../constants';
 import type { Layout } from './layout';
-import { columnAt, isInResetButton } from './layout';
+import { columnAt, isInMenuButton, isInResetButton } from './layout';
 import type { AnimState } from './animations';
 
 type Store = typeof useGameStore;
@@ -13,6 +13,8 @@ type InputCtx = {
   anim: AnimState;
   store: Store;
 };
+
+type ReadonlyState = ReturnType<Store['getState']>;
 
 const eventPoint = (
   canvas: HTMLCanvasElement,
@@ -33,6 +35,19 @@ const firstFreeRow = (column: ReadonlyArray<number>): number => {
 };
 
 /**
+ * True iff the human player is allowed to drop a piece *right now*. Blocked
+ * during AI turns and while the AI is computing, so spamming the canvas can't
+ * race the AI's setTimeout-deferred move.
+ */
+const isHumanTurn = (state: ReadonlyState): boolean => {
+  if (state.gamePhase !== 'playing') return false;
+  if (!state.isPlaying) return false;
+  if (state.aiThinking) return false;
+  if (state.aiPlayer === null) return true;
+  return state.currentPlayer !== state.aiPlayer;
+};
+
+/**
  * Wire up pointer and keyboard handlers on the canvas. Returns a cleanup
  * function that detaches everything.
  */
@@ -46,11 +61,15 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     // Reset button hover is only meaningful when the overlay is showing.
     if (state.showOverlay) {
       anim.resetHovered = isInResetButton(layout, x, y);
+      anim.menuHovered = false;
     } else {
       anim.resetHovered = false;
+      // The MENU button is only shown when there's no end-game overlay.
+      anim.menuHovered =
+        state.gamePhase === 'playing' && isInMenuButton(layout, x, y);
     }
 
-    if (!state.isPlaying) {
+    if (!isHumanTurn(state)) {
       anim.hoveredColumn = null;
       return;
     }
@@ -59,7 +78,7 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
 
   const tryDropInColumn = (col: number) => {
     const state = store.getState();
-    if (!state.isPlaying) return;
+    if (!isHumanTurn(state)) return;
     const row = firstFreeRow(state.gameBoard[col]);
     if (row < 0) return;
     state.addPiece(row, col);
@@ -68,13 +87,15 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
   const onMouseMove = (event: MouseEvent) => {
     const { x, y } = eventPoint(canvas, event);
     updateHoverFromPoint(x, y);
-    canvas.style.cursor =
-      anim.resetHovered || anim.hoveredColumn !== null ? 'pointer' : 'default';
+    const interactive =
+      anim.resetHovered || anim.menuHovered || anim.hoveredColumn !== null;
+    canvas.style.cursor = interactive ? 'pointer' : 'default';
   };
 
   const onMouseLeave = () => {
     anim.hoveredColumn = null;
     anim.resetHovered = false;
+    anim.menuHovered = false;
     canvas.style.cursor = 'default';
   };
 
@@ -83,11 +104,22 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const layout = getLayout();
     const state = store.getState();
 
+    // End-of-game "Menu" button: returns to the welcome modal.
     if (state.showOverlay && isInResetButton(layout, x, y)) {
-      state.resetGame();
-      // Clear hover so the post-reset frame doesn't show a stale ghost.
+      state.openSetup();
       anim.hoveredColumn = null;
       anim.resetHovered = false;
+      return;
+    }
+
+    // In-game MENU button: opens the "return to setup?" confirmation.
+    if (
+      state.gamePhase === 'playing' &&
+      !state.showOverlay &&
+      isInMenuButton(layout, x, y)
+    ) {
+      state.requestReset();
+      anim.menuHovered = false;
       return;
     }
 
@@ -105,9 +137,19 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const state = store.getState();
 
     if (state.showOverlay && isInResetButton(layout, x, y)) {
-      state.resetGame();
+      state.openSetup();
       anim.hoveredColumn = null;
       anim.resetHovered = false;
+      return;
+    }
+
+    if (
+      state.gamePhase === 'playing' &&
+      !state.showOverlay &&
+      isInMenuButton(layout, x, y)
+    ) {
+      state.requestReset();
+      anim.menuHovered = false;
       return;
     }
 
@@ -125,20 +167,43 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
   const onTouchEnd = () => {
     anim.hoveredColumn = null;
     anim.resetHovered = false;
+    anim.menuHovered = false;
   };
 
-  // Keyboard: digits 1–7 drop in that column; R / Enter / Space reset when
-  // the overlay is showing. Keeps the game playable without a pointer.
+  // Keyboard: digits 1–7 drop in that column when it's the human's turn;
+  // R / Enter / Space reset when the win/draw overlay is showing; Escape
+  // opens the mid-game menu. Keeps the game playable without a pointer.
   const onKeyDown = (event: KeyboardEvent) => {
     const state = store.getState();
 
     if (state.showOverlay) {
-      if (event.key === 'r' || event.key === 'R' || event.key === 'Enter' || event.key === ' ') {
+      // After a game ends, the only action is returning to the welcome
+      // modal — Enter / Space / M all do it.
+      if (
+        event.key === 'Enter' ||
+        event.key === ' ' ||
+        event.key === 'm' ||
+        event.key === 'M'
+      ) {
         event.preventDefault();
-        state.resetGame();
+        state.openSetup();
       }
       return;
     }
+
+    if (state.gamePhase !== 'playing') return;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (state.showResetConfirm) {
+        state.cancelResetRequest();
+      } else {
+        state.requestReset();
+      }
+      return;
+    }
+
+    if (state.showResetConfirm) return; // confirmation modal owns the keyboard
 
     if (event.key >= '1' && event.key <= '7') {
       const col = parseInt(event.key, 10) - 1;

@@ -1,4 +1,4 @@
-import { COLUMNS, ROWS, type Cell, type Player, type WinningPiece } from '../constants';
+import { COLUMNS, ROWS, type Cell, type GameBoard, type Player, type WinningPiece } from '../constants';
 import type { useGameStore } from '../store';
 import {
   cellCenter,
@@ -22,8 +22,8 @@ const C = {
   boardYellow: '#fbc02d',
   pieceRed: '#f44336',
   pieceRedSoft: '#e57373',
-  pieceBlack: '#34495e',
-  pieceBlackSoft: '#757575',
+  pieceBlack: '#1a1a1a',
+  pieceBlackSoft: '#4a4a4a',
   pieceWinner: '#ffffff',
   columnHover: '#3498db',
   cardBg: '#e9e9e9',
@@ -87,10 +87,15 @@ const isWinningPiece = (
 ): boolean =>
   winningPieces.some((p) => p.column === col && p.row === row);
 
-const drawPieces = (
+/**
+ * Draw all pieces for the given board. Board-agnostic so the attract path can
+ * paint a separate self-play game without going through the store.
+ */
+const drawPiecesForBoard = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
-  state: GameState,
+  gameBoard: GameBoard,
+  winningPieces: ReadonlyArray<WinningPiece>,
   anim: AnimState,
   now: number,
 ): void => {
@@ -98,13 +103,13 @@ const drawPieces = (
 
   for (let col = 0; col < COLUMNS; col++) {
     for (let row = 0; row < ROWS; row++) {
-      const cellValue: Cell = state.gameBoard[col][row];
+      const cellValue: Cell = gameBoard[col][row];
       if (cellValue === 0) continue;
 
       const finalCenter = cellCenter(layout, col, row);
       const progress = dropProgress(anim, col, row, now);
       const y = startY + (finalCenter.y - startY) * progress;
-      const isWinner = isWinningPiece(state.winningPieces, col, row);
+      const isWinner = isWinningPiece(winningPieces, col, row);
 
       // Draw the pulse ring under the piece while it pulses (only after the
       // drop has finished, otherwise it looks odd attached to a falling piece).
@@ -220,6 +225,9 @@ const drawHover = (
   anim: AnimState,
 ): void => {
   if (!state.isPlaying) return;
+  // Don't show a hover indicator while it's the AI's turn — the human can't
+  // act, so a ghost piece would be misleading.
+  if (state.aiPlayer !== null && state.currentPlayer === state.aiPlayer) return;
   if (anim.hoveredColumn === null) return;
   const col = anim.hoveredColumn;
 
@@ -249,7 +257,17 @@ const drawHover = (
   ctx.restore();
 };
 
-// ───────────────────────── clocks ─────────────────────────
+// ───────────────────────── clocks / turn indicator ─────────────────────────
+
+/**
+ * Format `seconds` as M:SS. Once you're a few minutes in, raw second-counts
+ * stop being legible at a glance.
+ */
+const formatTime = (seconds: number): string => {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 const drawClocks = (
   ctx: CanvasRenderingContext2D,
@@ -289,18 +307,108 @@ const drawClocks = (
       );
     }
 
-    // Label.
+    // Label — append "(CPU)" so it's clear who's the AI.
+    const isAi = state.aiPlayer === player;
     ctx.fillStyle = C.textOnBlue;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.font = `${12 * scale}px system-ui, sans-serif`;
-    ctx.fillText(`PLAYER ${player} TIME`, cx, clocks.top + 14 * scale);
+    ctx.fillText(
+      isAi ? `PLAYER ${player} (CPU)` : `PLAYER ${player}`,
+      cx,
+      clocks.top + 14 * scale,
+    );
 
-    // Time value.
+    // Time value, formatted M:SS.
     ctx.font = `${36 * scale}px ui-monospace, "SF Mono", Menlo, monospace`;
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(times[i]), cx, clocks.top + clocks.cardHeight / 2 + 8 * scale);
+    ctx.fillText(formatTime(times[i]), cx, clocks.top + clocks.cardHeight / 2 + 8 * scale);
   }
+};
+
+/**
+ * Minimalist turn indicator used when timers are off. Centered in the band
+ * where the clocks would otherwise live — a single colored disc + the active
+ * player's label, with a small "(CPU)" suffix if it's the AI's turn.
+ */
+const drawTurnIndicator = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  state: GameState,
+): void => {
+  const { clocks, scale } = layout;
+  const cx = layout.width / 2;
+  const cy = clocks.top + clocks.cardHeight / 2;
+
+  const player = state.currentPlayer;
+  const radius = 18 * scale;
+  // Disc with a thin white outline for legibility on the blue background.
+  circlePath(ctx, cx - 90 * scale, cy, radius);
+  ctx.fillStyle = colorFor(player);
+  ctx.fill();
+  ctx.lineWidth = 2 * scale;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.stroke();
+
+  ctx.fillStyle = C.textOnBlue;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${22 * scale}px system-ui, sans-serif`;
+  const isAi = state.aiPlayer === player;
+  const label = state.isPlaying
+    ? `Player ${player}${isAi ? ' (CPU)' : ''}'s turn`
+    : `Player ${player}${isAi ? ' (CPU)' : ''}`;
+  ctx.fillText(label, cx - 60 * scale, cy);
+};
+
+// ───────────────────────── in-game menu button + thinking indicator ─────────────────────────
+
+const drawMenuButton = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  anim: AnimState,
+): void => {
+  const b = layout.menuButton;
+  const hovered = anim.menuHovered;
+
+  roundedRectPath(ctx, b.x, b.y, b.width, b.height, b.radius);
+  ctx.fillStyle = hovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.18)';
+  ctx.fill();
+  ctx.lineWidth = 1 * layout.scale;
+  ctx.strokeStyle = hovered ? C.boardBlue : 'rgba(255, 255, 255, 0.5)';
+  ctx.stroke();
+
+  ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${12 * layout.scale}px system-ui, sans-serif`;
+  ctx.fillText('MENU', b.x + b.width / 2, b.y + b.height / 2 + 1);
+};
+
+/**
+ * Subtle pulsing "Thinking…" tag while the AI computes a move. Lives just
+ * below the clock band, centered — short-lived so it doesn't dominate.
+ */
+const drawThinkingIndicator = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  now: number,
+): void => {
+  const { scale } = layout;
+  const cx = layout.width / 2;
+  const cy = layout.clocks.top + layout.clocks.cardHeight + 14 * scale;
+  // 0..1 pulse over a ~1.2s period.
+  const phase = (now % 1200) / 1200;
+  const alpha = 0.55 + 0.45 * Math.sin(phase * Math.PI * 2);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = C.textOnBlue;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${13 * scale}px system-ui, sans-serif`;
+  ctx.fillText('CPU thinking…', cx, cy);
+  ctx.restore();
 };
 
 // ───────────────────────── board title ─────────────────────────
@@ -397,9 +505,40 @@ const drawOverlay = (
 
   ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
   ctx.font = `${16 * layout.scale}px system-ui, sans-serif`;
-  ctx.fillText('Reset', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
+  ctx.fillText('Menu', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
 
   ctx.restore();
+};
+
+// ───────────────────────── attract paint ─────────────────────────
+
+/**
+ * View model for the attract self-play running behind the welcome modal.
+ * Painted independently from the real game so the two can't collide.
+ */
+export type AttractView = {
+  gameBoard: GameBoard;
+  winningPieces: ReadonlyArray<WinningPiece>;
+};
+
+/**
+ * Slim paint path for setup mode: just background + pieces + board + title.
+ * No clocks, no menu button, no hover ghost, no end-game overlay — the
+ * welcome modal sits in front of all of that.
+ */
+export const paintAttract = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  view: AttractView,
+  anim: AnimState,
+  now: number,
+): void => {
+  ctx.fillStyle = C.boardBlue;
+  ctx.fillRect(0, 0, layout.width, layout.height);
+
+  drawPiecesForBoard(ctx, layout, view.gameBoard, view.winningPieces, anim, now);
+  drawBoardWithHoles(ctx, layout);
+  drawBoardTitle(ctx, layout);
 };
 
 // ───────────────────────── paint ─────────────────────────
@@ -411,17 +550,31 @@ export const paint = (
   anim: AnimState,
   now: number,
 ): void => {
-  // 1. Background.
+  // 1. Background. Always painted; everything else stacks on top.
   ctx.fillStyle = C.boardBlue;
   ctx.fillRect(0, 0, layout.width, layout.height);
 
-  // 2. Clocks (drawn before the board, in the band above it).
-  drawClocks(ctx, layout, state);
+  // During the welcome modal we hold the canvas mostly blank — a full DOM
+  // modal sits in front, and rendering pieces/clocks here would be visual
+  // noise behind it. We still paint the board so the canvas isn't an empty
+  // rectangle if the modal is dismissed via Escape.
+  if (state.gamePhase === 'setup') {
+    drawBoardWithHoles(ctx, layout);
+    drawBoardTitle(ctx, layout);
+    return;
+  }
+
+  // 2. Clocks or minimal turn indicator, depending on config.
+  if (state.timersEnabled) {
+    drawClocks(ctx, layout, state);
+  } else {
+    drawTurnIndicator(ctx, layout, state);
+  }
 
   // 3. Pieces — drawn in their current positions (some may be above the
   //    board area mid-drop; those will remain visible since the yellow board
   //    layer only covers the rectangle below).
-  drawPieces(ctx, layout, state, anim, now);
+  drawPiecesForBoard(ctx, layout, state.gameBoard, state.winningPieces, anim, now);
 
   // 4. Yellow board face with circular holes. Pieces in step 3 show through
   //    the holes; the rest is covered by yellow.
@@ -435,6 +588,17 @@ export const paint = (
   // 6. "CONNECT4" title.
   drawBoardTitle(ctx, layout);
 
-  // 7. End-of-game overlay.
+  // 7. In-game MENU button (top-right). Hidden once the win/draw overlay is
+  //    up — that overlay has its own Reset button.
+  if (!state.showOverlay) {
+    drawMenuButton(ctx, layout, anim);
+  }
+
+  // 8. AI "thinking" pulse, layered above the board but below the overlay.
+  if (state.aiThinking) {
+    drawThinkingIndicator(ctx, layout, now);
+  }
+
+  // 9. End-of-game overlay.
   drawOverlay(ctx, layout, state, anim, now);
 };
