@@ -51,6 +51,13 @@ type GameState = {
   showResetConfirm: boolean;
   /** Whether to display the keyboard-shortcut hints throughout the app. */
   keyboardHintsVisible: boolean;
+  /**
+   * Whether the current device/viewport can usefully act on keyboard hints.
+   * False on touch devices and narrow viewports — there's no physical keyboard
+   * to follow the hints, and the toggle button itself is CSS-hidden there.
+   * App.tsx keeps this in sync with a matchMedia listener.
+   */
+  keyboardHintsSupported: boolean;
 };
 
 type GameActions = {
@@ -70,6 +77,8 @@ type GameActions = {
   revealEndOverlay: () => void;
   /** Toggle the visibility of keyboard hints across canvas + modals. */
   toggleKeyboardHints: () => void;
+  /** Driven from App.tsx's matchMedia listener; see GameState.keyboardHintsSupported. */
+  setKeyboardHintsSupported: (supported: boolean) => void;
 };
 
 /**
@@ -106,6 +115,9 @@ const initialState: GameState = {
   // turning them off is a deliberate choice the user can make via the
   // viewport toggle (or by pressing "?"). Defaulting off hid useful info.
   keyboardHintsVisible: true,
+  // Optimistic default; App.tsx corrects this on mount via matchMedia and
+  // keeps it in sync as the viewport changes (resize, orientation).
+  keyboardHintsSupported: true,
   ...freshBoardState(),
 };
 
@@ -238,4 +250,17 @@ export const useGameStore = create<GameState & GameActions>((set) => ({
 
   toggleKeyboardHints: () =>
     set((state) => ({ keyboardHintsVisible: !state.keyboardHintsVisible })),
+
+  setKeyboardHintsSupported: (supported) =>
+    set(() => ({ keyboardHintsSupported: supported })),
 }));
+
+/**
+ * Effective keyboard-hint visibility: the user's preference AND a viewport
+ * that can act on hints. Use this in every consumer EXCEPT the toggle button
+ * itself (which mirrors the user's stored preference, since its own
+ * visibility is already CSS-gated to keyboard-friendly viewports).
+ */
+export const selectShowKeyboardHints = (
+  state: GameState & GameActions,
+): boolean => state.keyboardHintsVisible && state.keyboardHintsSupported;

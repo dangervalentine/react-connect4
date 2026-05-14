@@ -450,11 +450,6 @@ canvas {
   line-height: 1;
 }
 
-/* On narrow viewports the corner gets crowded; hide on touch / small. */
-@media (max-width: 540px) {
-  .github-attribution { display: none; }
-}
-
 /* ─────────────────────── inline keyboard-hint footers ─────────────────────── */
 
 /*
