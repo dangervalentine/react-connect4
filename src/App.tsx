@@ -11,7 +11,7 @@ import {
 } from './canvas/animations';
 import { paint, paintAttract } from './canvas/scene';
 import { setupInputs } from './canvas/input';
-import { chooseMove } from './ai/engine';
+import { cancelChooseMove, chooseMoveAsync } from './ai/engineClient';
 import { createAttract, resetAttract, stepAttract } from './ai/attractDemo';
 import { GithubAttribution } from './components/GithubAttribution';
 import { KeyboardHintsToggle } from './components/KeyboardHintsToggle';
@@ -26,11 +26,16 @@ const firstFreeRow = (column: ReadonlyArray<number>): number => {
 };
 
 /**
- * Minimum time the AI's move is held back. Two reasons:
- *   1. Without it, hard-difficulty moves look like a vending machine —
- *      instant responses break the illusion of "thinking".
+ * Minimum on-screen time for the "CPU thinking…" pulse. Two reasons:
+ *   1. Easy mode and immediate tactical wins resolve in microseconds —
+ *      without a floor they look like a vending machine, breaking the
+ *      illusion of deliberation.
  *   2. It also gives our setupInputs gate (which checks aiThinking) time
  *      to register, preventing rare race conditions if the user double-taps.
+ *
+ * Hard-mode searches now run in a worker (see ai/engineClient.ts), so the
+ * search itself almost always exceeds this floor and the floor becomes a
+ * no-op for those turns.
  */
 const AI_THINK_MIN_MS = 350;
 
@@ -227,22 +232,28 @@ const App = () => {
 
     // ── AI turn driver ──
     //
-    // Every relevant store update is examined: if it's now the AI's turn and
-    // we're not already mid-think, we schedule a move on a short timeout so
-    // it feels deliberate and the "thinking" indicator gets a frame to show.
+    // On the AI's turn we kick off chooseMoveAsync (which off-loads negamax to
+    // a Web Worker so the UI stays responsive during hard mode's multi-second
+    // burns) and start a parallel AI_THINK_MIN_MS minimum-delay timer. The
+    // move is committed once both have completed.
     //
-    // Cancellation: a pending timer is cleared whenever the precondition stops
-    // holding (player reset, game ended, returned to setup). A generation
-    // counter guards against the rare case where the timer's callback fires
-    // *just* after the game state changes but before our subscriber clears
-    // the timer.
-    let pendingAiTimer: number | null = null;
+    // Cancellation: bumping aiGeneration causes the resolved-search callback
+    // to bail via the staleness check; cancelChooseMove() terminates the
+    // worker so it stops burning CPU; pendingMinDelayTimer is cleared so a
+    // stale "place" callback can't fire after the user has reset the game.
+    // The orphaned promise (from the in-flight chooseMoveAsync) never
+    // resolves — that's intentional and safe; nothing references it after we
+    // discard it, so the closure is GC'd.
+    let pendingMinDelayTimer: number | null = null;
     let aiGeneration = 0;
 
     const cancelPendingAi = () => {
-      if (pendingAiTimer !== null) {
-        window.clearTimeout(pendingAiTimer);
-        pendingAiTimer = null;
+      // Bumping the generation discards any in-flight .then() callback.
+      ++aiGeneration;
+      cancelChooseMove();
+      if (pendingMinDelayTimer !== null) {
+        window.clearTimeout(pendingMinDelayTimer);
+        pendingMinDelayTimer = null;
       }
       // Drop the "thinking" flag too — leaving it set would keep the
       // "CPU thinking…" indicator on screen indefinitely.
@@ -264,27 +275,48 @@ const App = () => {
     const scheduleAiMove = () => {
       const state = useGameStore.getState();
       if (!shouldAiPlay(state)) return;
-      if (state.aiThinking || pendingAiTimer !== null) return;
+      // aiThinking gates re-entry — the existing turn is still resolving.
+      if (state.aiThinking) return;
 
       const myGen = ++aiGeneration;
       state.setAiThinking(true);
+      const startedAt = performance.now();
 
-      pendingAiTimer = window.setTimeout(() => {
-        pendingAiTimer = null;
-        const s = useGameStore.getState();
-        // Stale generation? The game state changed during the wait — abandon.
-        if (myGen !== aiGeneration || !shouldAiPlay(s)) {
-          if (s.aiThinking) s.setAiThinking(false);
-          return;
+      void chooseMoveAsync(
+        state.gameBoard,
+        state.currentPlayer,
+        state.difficulty,
+      ).then((col) => {
+        if (myGen !== aiGeneration) return; // cancelled or superseded mid-search
+
+        const place = () => {
+          pendingMinDelayTimer = null;
+          if (myGen !== aiGeneration) return;
+          const s = useGameStore.getState();
+          if (!shouldAiPlay(s)) {
+            if (s.aiThinking) s.setAiThinking(false);
+            return;
+          }
+          const row = firstFreeRow(s.gameBoard[col]);
+          if (row < 0) {
+            s.setAiThinking(false);
+            return;
+          }
+          s.addPiece(row, col);
+        };
+
+        // Hold the move until AI_THINK_MIN_MS has elapsed since the search
+        // started, so the pulsing "CPU thinking…" indicator gets at least
+        // one full beat on screen even when the search returned in
+        // milliseconds (easy bypass, immediate tactical wins, etc.).
+        const elapsed = performance.now() - startedAt;
+        const remaining = AI_THINK_MIN_MS - elapsed;
+        if (remaining > 0) {
+          pendingMinDelayTimer = window.setTimeout(place, remaining);
+        } else {
+          place();
         }
-        const col = chooseMove(s.gameBoard, s.currentPlayer, s.difficulty);
-        const row = firstFreeRow(s.gameBoard[col]);
-        if (row < 0) {
-          s.setAiThinking(false);
-          return;
-        }
-        s.addPiece(row, col);
-      }, AI_THINK_MIN_MS);
+      });
     };
 
     const unsubscribeAi = useGameStore.subscribe((state) => {
