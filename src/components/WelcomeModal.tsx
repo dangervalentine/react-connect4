@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 
-import { useGameStore } from '../store';
+import { selectShowKeyboardHints, useGameStore } from '../store';
 import type { Difficulty, GameMode, PieceColor } from '../constants';
 
 /**
@@ -126,7 +126,7 @@ export const WelcomeModal = () => {
   const initDifficulty = useGameStore((s) => s.difficulty);
   const initColor = useGameStore((s) => s.humanColor);
   const initTimers = useGameStore((s) => s.timersEnabled);
-  const keyboardHintsVisible = useGameStore((s) => s.keyboardHintsVisible);
+  const keyboardHintsVisible = useGameStore(selectShowKeyboardHints);
 
   const [mode, setMode] = useState<GameMode>(initMode);
   const [difficulty, setDifficulty] = useState<Difficulty>(initDifficulty);
