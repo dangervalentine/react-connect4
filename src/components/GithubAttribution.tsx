@@ -4,8 +4,8 @@
  * with the action ("on GitHub") in one self-contained badge.
  *
  * Opens in a new tab; styled to be unobtrusive (low-contrast background,
- * smaller font) so it doesn't compete with gameplay UI. Hidden on very
- * narrow viewports via CSS to keep the bottom corner clean on phones.
+ * smaller font) so it doesn't compete with gameplay UI. Stays visible on
+ * mobile too — credit shouldn't be platform-conditional.
  *
  * Sits below the modal backdrop in z-order — it's reference material,
  * not gameplay UI that needs to remain clickable through a modal.

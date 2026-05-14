@@ -65,6 +65,21 @@ const App = () => {
     });
   }, []);
 
+  // Sync `keyboardHintsSupported` with the viewport. The query mirrors the
+  // CSS rule that hides the toggle button (.kb-toggle): on touch devices and
+  // narrow viewports there's no useful keyboard, so the painted hints
+  // (column digits, Esc chip) and modal hint footers are suppressed too.
+  const setKeyboardHintsSupported = useGameStore(
+    (s) => s.setKeyboardHintsSupported,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 720px), (hover: none)');
+    const update = () => setKeyboardHintsSupported(!mql.matches);
+    update(); // Seed before first paint.
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, [setKeyboardHintsSupported]);
+
   // Global "K" shortcut to toggle keyboard hints. Single key (no Shift+/
   // gymnastics) and mnemonic for "Keyboard". Lives at the document level so
   // it works in every phase (setup, playing, finished, modals open). Bound
