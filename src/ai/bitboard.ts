@@ -57,13 +57,25 @@ export const canPlay = (pos: Position, col: number): boolean =>
  * Play `col`. Returns a new Position with player perspective swapped — i.e.
  * `position` afterwards represents the pieces of the player whose turn is
  * now next. Caller must check `canPlay(pos, col)` first.
+ *
+ * Order matters: we XOR `position` with the OLD mask first (which converts
+ * "current mover's pieces" into "opponent's pieces" = new mover's pieces),
+ * then update the mask to include the just-played piece. Doing it the other
+ * way around — XORing with the new mask — would fold the just-played piece
+ * (which belongs to the old mover, not the new mover) into `position`, and
+ * silently corrupt every subsequent eval and search.
  */
 export const play = (pos: Position, col: number): Position => {
-  // `mask + bottomBit(col)` carries the bit up to the lowest empty slot in
-  // column c; ORing into mask seats the new piece there.
+  // Step 1: swap perspective. Before any new piece is placed, the new mover's
+  // pieces are exactly the old opponent's pieces = pos.mask XOR pos.position.
+  const swappedPosition = pos.position ^ pos.mask;
+  // Step 2: drop the piece. `mask + bottomBit(col)` carries up to the lowest
+  // empty slot in the column; ORing into mask seats the new piece there. The
+  // piece belongs to the old mover (now the new opponent), so it's correctly
+  // absent from `swappedPosition`.
   const newMask = pos.mask | (pos.mask + bottomBit(col));
   return {
-    position: pos.position ^ newMask, // swap perspective: old "us" now becomes "opponent" in the new view
+    position: swappedPosition,
     mask: newMask,
     moves: pos.moves + 1,
   };

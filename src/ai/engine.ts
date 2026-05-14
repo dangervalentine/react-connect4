@@ -1,4 +1,4 @@
-import { type Difficulty, type GameBoard, type Player } from '../constants';
+import { COLUMNS, ROWS, type Difficulty, type GameBoard, type Player } from '../constants';
 import {
   canPlay,
   fromGameBoard,
@@ -6,7 +6,7 @@ import {
   opponentView,
   type Position,
 } from './bitboard';
-import { MATE_SCORE, scoreAllMoves } from './search';
+import { MATE_SCORE, scoreAllMoves, type SearchOptions } from './search';
 
 /**
  * Choose a column for the AI to play. Three difficulty profiles:
@@ -15,23 +15,45 @@ import { MATE_SCORE, scoreAllMoves } from './search';
  *            immediate loss, otherwise weighted-random with a center bias.
  *            Plays like a casual human who isn't reading ahead. No search.
  *
- *   medium — depth-4 negamax with α-β. Occasionally picks the 2nd-best move
- *            when the gap is small, so it doesn't feel mechanical. Strong
- *            tactical play but blunderable.
+ *   medium — iterative-deepening negamax with α-β + TT, capped at depth 7 with
+ *            a ~800ms wall-clock budget. Occasionally picks the 2nd-best move
+ *            when the score gap is tiny, so it doesn't feel mechanical. Strong
+ *            tactical play but blunderable on long-range traps.
  *
- *   hard   — depth-7 negamax with α-β. Plays accurately within its horizon —
- *            spots traps several moves out and rarely walks into one.
+ *   hard   — same engine, uncapped depth (up to MAX_MOVES) with a ~2500ms
+ *            budget. Within the budget it iteratively deepens; late-game
+ *            positions are fully solved (search depth = remaining cells). The
+ *            heuristic understands Connect 4's parity / zugzwang principle, so
+ *            even mid-game decisions are made with the right long-range
+ *            objective in mind.
  */
 
 const MOVE_ORDER: readonly number[] = [3, 4, 2, 5, 1, 6, 0];
 
-// Per-difficulty search depths. Hard at 7 keeps single-move thinking well
-// under a quarter-second even on slow phones, with BigInt eval.
-const DEPTH: Record<Difficulty, number> = {
-  easy: 0, // unused — easyMove doesn't search
-  medium: 4,
-  hard: 7,
+// Total cells on the board — used as an unbounded depth cap for hard mode.
+// Once iterative deepening reaches movesRemaining = MAX_MOVES - pos.moves, the
+// search is exhaustive and the result is the true game-theoretic value.
+const MAX_MOVES = COLUMNS * ROWS;
+
+const SEARCH_OPTIONS: Record<Exclude<Difficulty, 'easy'>, SearchOptions> = {
+  // Medium intentionally caps depth: we want a recognizable tactical level,
+  // not a "strong solver with a slow timer". The budget is a safety net for
+  // dense midgame positions.
+  medium: { maxDepth: 7, budgetMs: 800 },
+  // Hard is "solve when feasible". MAX_MOVES disables the depth cap; the
+  // 2500ms budget keeps single-turn freezes bounded on slower devices. Late-
+  // game positions (movesRemaining small) finish well under budget and return
+  // perfect play; early-game positions return the deepest completed depth.
+  hard: { maxDepth: MAX_MOVES, budgetMs: 2500 },
 };
+
+// Medium's "soft" preference window: when the top two moves are within this
+// many points AND the score isn't anywhere near a mate, medium has a chance
+// to take the 2nd-best move. Tightened from the previous (depth-4-era) value
+// of 25 because deeper search produces a finer-grained score distribution —
+// 25 used to mean "essentially identical moves", now it's "noticeably worse".
+const MEDIUM_SOFT_WINDOW = 8;
+const MEDIUM_SANDBAG_PROB = 0.18;
 
 const playableColumns = (pos: Position): number[] => {
   const cols: number[] = [];
@@ -79,27 +101,31 @@ export const chooseMove = (
 
   if (difficulty === 'easy') return easyMove(pos);
 
-  const scored = scoreAllMoves(pos, DEPTH[difficulty]);
-  if (scored.length === 0) return 3; // unreachable — engine only called mid-game
+  const scored = scoreAllMoves(pos, SEARCH_OPTIONS[difficulty]);
+  // scoreAllMoves always returns at least one move when called mid-game.
+  // The "no playable column" case (board full) is handled by the caller in
+  // App.tsx — we'd never get here. Belt-and-suspenders: column 3.
+  if (scored.length === 0) return 3;
 
   const best = scored[0];
 
   if (difficulty === 'medium') {
-    // 30% of the time, if the top two moves are within a "soft" gap, pick the
-    // second. This produces a player that reads ahead but doesn't always
-    // commit to the optimal line — feels like a competent casual opponent.
-    // Forced wins are never sandbagged: if the best move is a mate, take it.
+    // Slight sandbagging: when the top two moves are tactically equivalent
+    // (gap below MEDIUM_SOFT_WINDOW) and neither is a forced mate, pick the
+    // 2nd-best with low probability. This adds a touch of unpredictability
+    // without throwing actually-better moves overboard. Forced wins/losses
+    // are always played straight.
     if (
       scored.length >= 2 &&
-      Math.abs(best.score) < MATE_SCORE - 100 &&
-      Math.abs(best.score - scored[1].score) < 25 &&
-      Math.random() < 0.3
+      Math.abs(best.score) < MATE_SCORE - ROWS * COLUMNS &&
+      Math.abs(best.score - scored[1].score) < MEDIUM_SOFT_WINDOW &&
+      Math.random() < MEDIUM_SANDBAG_PROB
     ) {
       return scored[1].col;
     }
     return best.col;
   }
 
-  // hard: best move, no sandbagging
+  // hard: best move, no sandbagging.
   return best.col;
 };
