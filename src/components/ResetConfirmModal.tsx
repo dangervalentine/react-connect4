@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { useGameStore } from '../store';
+import { selectShowKeyboardHints, useGameStore } from '../store';
 
 /**
  * Confirmation dialog shown when the player clicks the in-game MENU button.
@@ -10,7 +10,7 @@ import { useGameStore } from '../store';
 export const ResetConfirmModal = () => {
   const cancelResetRequest = useGameStore((s) => s.cancelResetRequest);
   const openSetup = useGameStore((s) => s.openSetup);
-  const keyboardHintsVisible = useGameStore((s) => s.keyboardHintsVisible);
+  const keyboardHintsVisible = useGameStore(selectShowKeyboardHints);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
 

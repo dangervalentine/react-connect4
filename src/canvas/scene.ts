@@ -1,5 +1,5 @@
 import { COLUMNS, ROWS, type Cell, type GameBoard, type Player, type WinningPiece } from '../constants';
-import type { useGameStore } from '../store';
+import { selectShowKeyboardHints, type useGameStore } from '../store';
 import {
   cellCenter,
   type Layout,
@@ -978,8 +978,10 @@ export const paint = (
 
   // 8. Column key hints — "1" through "7" above each column. Shown only
   //    while the game is live (a true hint applies only when input matters)
-  //    and the user has the keyboard-hints toggle on.
-  if (state.keyboardHintsVisible && state.gamePhase === 'playing' && !state.showOverlay) {
+  //    and the user has the keyboard-hints toggle on. Suppressed entirely
+  //    on touch / narrow viewports via `selectShowKeyboardHints`.
+  const showHints = selectShowKeyboardHints(state);
+  if (showHints && state.gamePhase === 'playing' && !state.showOverlay) {
     drawColumnKeyHints(ctx, layout);
   }
 
@@ -997,7 +999,7 @@ export const paint = (
   //     is up — that banner has its own Menu button. The Esc-kbd hint chip
   //     below it shows only when the user has keyboard hints enabled.
   if (!state.showOverlay && state.gamePhase === 'playing') {
-    drawMenuButton(ctx, layout, anim, state.keyboardHintsVisible);
+    drawMenuButton(ctx, layout, anim, showHints);
   }
 
   // 12. AI "thinking" pulse, layered above the board but below the banner.
