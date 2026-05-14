@@ -37,9 +37,9 @@ A from-scratch Connect 4 rendered entirely on an HTML5 canvas, with a **bitboard
 
 | Mode | Behavior |
 |------|----------|
-| **Easy** | Heuristic only — always blocks an immediate loss, always takes an immediate win, otherwise weighted-random with a center bias. Plays like a casual human. |
-| **Medium** | Depth-4 negamax with α-β. Occasionally picks the 2nd-best move when the gap is small so it doesn't feel mechanical. |
-| **Hard** | Depth-7 negamax with α-β + center-out move ordering. Spots traps several moves out and rarely walks into one. |
+| **Easy** | Heuristic only — always blocks an immediate loss, always takes an immediate win, otherwise weighted-random with a center bias. Plays like a casual human. Runs in-process. |
+| **Medium** | Depth-7 iterative-deepening negamax with α-β + transposition table + killer-move heuristic. ~800ms budget. Occasionally picks the 2nd-best move when the gap is genuinely small, so it doesn't feel mechanical. Runs in a Web Worker. |
+| **Hard** | Same engine, uncapped depth (up to MAX_MOVES) with a ~2.5s budget. Iteratively deepens within the budget; positions with few moves remaining are **fully solved** — the score is the true game-theoretic value. Heuristic understands Connect 4's parity / zugzwang principle. Runs in a Web Worker. |
 
 **Attract self-play** &mdash; Two easy-difficulty bots play each other behind the welcome modal as ambient motion, pausing on each result to let the win pulse play before resetting.
 
@@ -51,34 +51,47 @@ A from-scratch Connect 4 rendered entirely on an HTML5 canvas, with a **bitboard
 
 ## How It Works
 
-The AI runs a classic two-player game search on a bitboard representation of the position:
+The AI runs a classic two-player game search on a bitboard representation of the position. Medium and hard run inside a Web Worker so the UI keeps animating during multi-second searches; easy bypasses the worker (microseconds — round-trip would dominate).
 
 ```
 Board ──► fromGameBoard() — 49-bit Pascal-Pons encoding
               │
               ▼
-       Negamax search (depth depends on difficulty)
+       chooseMoveAsync() — main thread, returns Promise<col>
               │
               ▼
-       At each node:
-       ├── α-β pruning with center-out move ordering
+       Web Worker (medium / hard only)
+              │
+              ▼
+       Iterative deepening (depth 1, 2, … until budget or full solve)
+       └── Each pass seeds the next pass's move ordering via the TT
+              │
+              ▼
+       Negamax + α-β at each ply
+       ├── Transposition table (canonical 98-bit key: position | mask << 49n)
+       ├── Move ordering: TT-best → killer moves → center-out static
        ├── Immediate-win shortcut (mate-soon score)
        └── Recurse into legal children
               │
               ▼
        Leaf nodes: evaluatePosition() heuristic
        ├── 69 precomputed winning-line bitmasks
-       ├── Threat weights (3-in-a-row = 50, 2 = 10, 1 = 1)
+       ├── Threat density (3-in-a-row = 50, 2 = 10, 1 = 1)
+       ├── Parity-aware threat overlay — favored row +30, off-parity +6
+       │     (Connect 4's zugzwang rule: first player wants threats on odd
+       │      rows from the bottom; second player wants even rows)
        └── Center-column bonus
               │
               ▼
        Difficulty wrapper
-       ├── Easy   → no search; heuristic + weighted random
-       ├── Medium → depth-4 search; 30% chance of near-best move
-       └── Hard   → depth-7 search; no sandbagging
+       ├── Easy   → no search; heuristic + weighted random; in-process
+       ├── Medium → depth-7 cap, 800ms budget; tighter sandbagging
+       └── Hard   → unbounded depth, 2.5s budget; fully solves late game
 ```
 
 All move generation, win detection, and evaluation happen on BigInt bitboards (49 bits = 7 columns &times; (6 rows + 1 sentinel)), so winning-line checks are four shift-and-AND operations rather than a quadruple loop.
+
+**Worker cancellation.** When the player resets mid-search, the only reliable way to interrupt a synchronous `negamax` loop in a worker is `worker.terminate()` — web workers are single-threaded, so a `cancel` postMessage can't fire while the search is running, and SharedArrayBuffer (which would let the main thread set an abort flag via Atomics) needs COOP/COEP HTTP headers that GitHub Pages can't set. The client terminates and respawns; the in-flight promise is orphaned and GC'd, and the existing AI generation counter discards the result if it ever did arrive. Worker creation is ~10ms on respawn — invisible against the AI's minimum-think-time floor.
 
 The renderer is a pure-canvas paint loop driven by `requestAnimationFrame`. Layers composite in order:
 
@@ -125,9 +138,11 @@ src/
 │
 ├── ai/
 │   ├── bitboard.ts              49-bit Pascal-Pons encoding + primitives
-│   ├── eval.ts                  69-line heuristic with center-column bonus
-│   ├── search.ts                Negamax + α-β with center-out move ordering
+│   ├── eval.ts                  Threat-density heuristic with parity overlay
+│   ├── search.ts                Negamax + α-β + TT + iterative deepening
 │   ├── engine.ts                Difficulty profiles (easy / medium / hard)
+│   ├── worker.ts                Web Worker entry: runs negamax off-main-thread
+│   ├── engineClient.ts          Main-thread async client; terminate-to-cancel
 │   └── attractDemo.ts           Self-playing demo behind the welcome modal
 │
 ├── canvas/
