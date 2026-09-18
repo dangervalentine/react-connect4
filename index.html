@@ -7,6 +7,14 @@
     <meta property="og:image" content="https://raw.githubusercontent.com/dangervalentine/react-connect4/refs/heads/master/public/connect4.png" />
 
     <!--
+      Night Owl base tone. Tints the mobile browser chrome and tells the UA to
+      render native controls dark, so nothing light frames the app. Keep in
+      sync with colors.background.base in src/theme.ts.
+    -->
+    <meta name="theme-color" content="#011627" />
+    <meta name="color-scheme" content="dark" />
+
+    <!--
       Google Fonts: Poppins for the display title ("CONNECT4" + modal headings)
       and Inter for body / UI. preconnect first so the actual stylesheet fetch
       doesn't pay the TLS handshake cost.
