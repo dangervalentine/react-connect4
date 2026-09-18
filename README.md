@@ -14,7 +14,11 @@
 
 <p align="center">
   <a href="https://dangervalentine.github.io/react-connect4/">
-    <img src="./connect4.png" width="640" alt="Connect 4 screenshot" />
+    <img
+      src="./public/connect4.png"
+      width="720"
+      alt="Connect 4 title art: the wordmark beside a dark slate board holding a mid-game position in coral and mint."
+    />
   </a>
 </p>
 
@@ -97,12 +101,21 @@ The renderer is a pure-canvas paint loop driven by `requestAnimationFrame`. Laye
 
 ```
 background vignette → hole back-shadows → pieces → support feet
-       → yellow board face with even-odd hole cutouts
+       → slate board face with even-odd hole cutouts
        → hole rims → top-arch highlight → hover ghost
-       → "CONNECT4" title → in-game MENU button → end banner
+       → win pulse rings → "CONNECT4" title
+       → in-game MENU button → end banner
 ```
 
-Pieces are drawn *before* the board face; the board's even-odd fill then punches holes through the yellow, revealing the pieces underneath. Drop animations use a custom easing (gravity-then-damped-bounce) tracked in a separate `AnimState` that lives outside React.
+Pieces are drawn *before* the board face; the board's even-odd fill then punches holes through the slate, revealing the pieces underneath. The win pulse rings are the exception — they expand past the hole they belong to, so they're painted *after* the face or the board would clip them. Drop animations use a custom easing (gravity-then-damped-bounce) tracked in a separate `AnimState` that lives outside React.
+
+## Theming
+
+Every color in the app — canvas and DOM alike — resolves through [`src/theme.ts`](./src/theme.ts), which holds the **Night Owl** dark palette.
+
+`colors` is the raw token tree. `game` names those tokens for what the canvas paints (`faceTop`, `holeBack`, `p1`, `winnerRing`, …), and `applyThemeVars()` flattens the same tree onto `:root` as CSS custom properties — `--no-*` for raw tokens, `--ui-*` for pre-composited alpha blends that plain CSS can't derive. `scene.ts` imports `game`; `App.css` reads the custom properties. One source, so the board and the modals can't drift apart.
+
+To retheme, change the tokens in `theme.ts` — nothing else hardcodes a color. Two assets are generated *from* the running renderer and need regenerating when the palette moves: `public/favicon.svg` and `public/connect4.png` (the og:image and README hero).
 
 ## Quick Start
 
@@ -125,6 +138,7 @@ Vite's `base` is set to `/react-connect4/` in [`vite.config.ts`](./vite.config.t
 - **Canvas 2D** &mdash; everything board-related is canvas-painted
 - **BigInt bitboards** &mdash; 49-bit Pascal-Pons encoding for the AI engine
 - **Poppins + Inter** &mdash; display and body type via Google Fonts
+- **Night Owl** &mdash; one token module drives the canvas and the CSS
 
 ## Project Structure
 
@@ -134,6 +148,7 @@ src/
 ├── main.tsx                     React 19 createRoot entry
 ├── store.ts                     Zustand game store (state + actions)
 ├── constants.ts                 Board dimensions + shared types
+├── theme.ts                     Night Owl tokens + CSS custom-property bridge
 ├── helpers/index.ts             checkGameBoard + isBoardFull
 │
 ├── ai/
