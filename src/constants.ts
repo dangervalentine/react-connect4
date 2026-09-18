@@ -17,10 +17,10 @@ export type GameMode = 'pvp' | 'pve';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
 /**
- * Display color choice. Red is always Player 1 (moves first); Black is always
+ * Display color choice. Red is always Player 1 (moves first); Teal is always
  * Player 2 (moves second). So picking a color also picks turn order.
  */
-export type PieceColor = 'red' | 'black';
+export type PieceColor = 'red' | 'teal';
 
 export const playerForColor = (color: PieceColor): Player =>
   color === 'red' ? 1 : 2;
