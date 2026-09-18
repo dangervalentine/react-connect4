@@ -211,16 +211,16 @@ export const WelcomeModal = () => {
                 ),
               },
               {
-                value: 'black',
-                ariaLabel: 'Play as black, go second',
+                value: 'teal',
+                ariaLabel: 'Play as teal, go second',
                 render: (
                   <>
                     <span
-                      className="piece-dot piece-dot-black"
+                      className="piece-dot piece-dot-teal"
                       aria-hidden="true"
                     />
                     <span className="pill-stack">
-                      <span>Black</span>
+                      <span>Teal</span>
                       <span className="pill-meta">goes second</span>
                     </span>
                   </>

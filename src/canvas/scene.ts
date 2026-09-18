@@ -1,5 +1,6 @@
 import { COLUMNS, ROWS, type Cell, type GameBoard, type Player, type WinningPiece } from '../constants';
 import { selectShowKeyboardHints, type useGameStore } from '../store';
+import { alpha, colors, game } from '../theme';
 import {
   cellCenter,
   type Layout,
@@ -17,58 +18,17 @@ type GameState = ReturnType<typeof useGameStore.getState>;
 
 // ───────────────────────── palette ─────────────────────────
 
-const C = {
-  // Blue family — split into a 3-stop tonal ramp so the canvas can carry a
-  // subtle vignette without the board itself losing its iconic mid-blue.
-  boardBlue: '#1565c0',
-  boardBlueLight: '#1d75d4', // vignette center
-  boardBlueDark: '#0b3f8c',  // vignette edges, support feet, deep hole back
-
-  // Yellow family — vertical gradient on the board face for a faint plastic
-  // sheen. Edges are deliberately narrow so the board reads as one color at a
-  // glance and the gradient is something you only notice if you look for it.
-  boardYellow: '#fbc02d',
-  boardYellowLight: '#fdd54b',
-  boardYellowDark: '#f1a917',
-
-  pieceRed: '#f44336',
-  pieceRedSoft: '#e57373',
-  pieceBlack: '#1a1a1a',
-  pieceBlackSoft: '#4a4a4a',
-  pieceWinner: '#ffffff',
-
-  // Hairline ring drawn around each piece to suggest a moulded edge — Hasbro
-  // chips have a thin lip you can feel with a thumbnail.
-  pieceEmboss: 'rgba(0, 0, 0, 0.32)',
-  // Specular dot for the glossy plastic highlight. Kept partially transparent
-  // so it tints toward the piece's underlying color rather than reading pure
-  // white.
-  pieceSpecular: 'rgba(255, 255, 255, 0.55)',
-
-  // Hole interior — a soft radial dark, painted before pieces, that survives
-  // when a slot is empty and gives the holes visible depth.
-  holeBack: 'rgba(0, 0, 0, 0.45)',
-  // Inner shadow ring drawn just inside each hole, on the yellow face, to
-  // suggest the rim of a slot — like a millimeter of bevel.
-  holeRim: 'rgba(140, 90, 0, 0.55)',
-
-  // Highlight stroke along the top arch — fakes a light coming from above.
-  topArchHighlight: 'rgba(255, 255, 255, 0.28)',
-
-  columnHover: '#3498db',
-  cardBg: '#e9e9e9',
-  cardShadow: 'rgba(0, 0, 0, 0.25)',
-  textOnBlue: '#ffffff',
-  textOnCard: '#1565c0',
-  clockBg: 'rgba(52, 73, 94, 0.25)',
-  clockBgActive: 'rgba(52, 73, 94, 0.5)',
-  buttonHover: '#ffffff',
-} as const;
+/**
+ * Canvas palette. Every entry resolves to a Night Owl token via ../theme, so
+ * the canvas and the DOM chrome in App.css draw from one source and can't
+ * drift apart.
+ */
+const C = game;
 
 const colorFor = (player: Player): string =>
-  player === 1 ? C.pieceRed : C.pieceBlack;
+  player === 1 ? C.p1 : C.p2;
 const softColorFor = (player: Player): string =>
-  player === 1 ? C.pieceRedSoft : C.pieceBlackSoft;
+  player === 1 ? C.p1Soft : C.p2Soft;
 
 /*
  * Font stacks for canvas-painted text. Poppins handles the display title
@@ -134,8 +94,8 @@ const drawBackground = (
   const outer = Math.hypot(layout.width, layout.height) / 2;
 
   const grad = ctx.createRadialGradient(cx, cy, outer * 0.15, cx, cy, outer);
-  grad.addColorStop(0, C.boardBlueLight);
-  grad.addColorStop(1, C.boardBlueDark);
+  grad.addColorStop(0, C.bgCenter);
+  grad.addColorStop(1, C.bgEdge);
 
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, layout.width, layout.height);
@@ -174,7 +134,7 @@ const drawHoleBackShadows = (
         c.y,
         cell.holeRadius,
       );
-      grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      grad.addColorStop(0, alpha(colors.background.floor, 0));
       grad.addColorStop(1, C.holeBack);
       ctx.fillStyle = grad;
       ctx.beginPath();
@@ -233,7 +193,7 @@ const drawPiecesForBoard = (
         const ring = winPulseRing(now);
         ctx.save();
         ctx.globalAlpha = ring.alpha;
-        ctx.strokeStyle = C.pieceWinner;
+        ctx.strokeStyle = C.winnerRing;
         ctx.lineWidth = layout.cell.size * 0.06;
         circlePath(
           ctx,
@@ -286,9 +246,9 @@ const drawPiecesForBoard = (
           y,
           radius,
         );
-        winnerGradient.addColorStop(0, '#ffffff');
-        winnerGradient.addColorStop(0.75, '#f5f5f5');
-        winnerGradient.addColorStop(1, '#d8d8d8');
+        winnerGradient.addColorStop(0, C.winnerCore);
+        winnerGradient.addColorStop(0.75, C.winnerMid);
+        winnerGradient.addColorStop(1, C.winnerEdge);
 
         ctx.save();
         ctx.globalAlpha = highlightP;
@@ -408,9 +368,9 @@ const drawBoardWithHoles = (
   appendHoleSubpaths(ctx, layout);
 
   const grad = ctx.createLinearGradient(0, board.y, 0, board.y + board.height);
-  grad.addColorStop(0, C.boardYellowLight);
-  grad.addColorStop(0.55, C.boardYellow);
-  grad.addColorStop(1, C.boardYellowDark);
+  grad.addColorStop(0, C.faceTop);
+  grad.addColorStop(0.55, C.faceMid);
+  grad.addColorStop(1, C.faceBottom);
   ctx.fillStyle = grad;
   ctx.fill('evenodd');
 };
@@ -451,7 +411,7 @@ const drawTopArchHighlight = (
   const { board, scale } = layout;
 
   ctx.save();
-  ctx.strokeStyle = C.topArchHighlight;
+  ctx.strokeStyle = C.archHighlight;
   ctx.lineWidth = Math.max(1.5, 2.5 * scale);
   ctx.lineCap = 'round';
 
@@ -502,7 +462,7 @@ const drawBoardFeet = (
   // sells the visual.
   const splay = 10 * scale;
 
-  ctx.fillStyle = C.boardBlueDark;
+  ctx.fillStyle = C.feet;
 
   // ── left foot ──
   ctx.beginPath();
@@ -617,7 +577,7 @@ const drawClocks = (
 
     // Label — append "(CPU)" so it's clear who's the AI.
     const isAi = state.aiPlayer === player;
-    ctx.fillStyle = C.textOnBlue;
+    ctx.fillStyle = C.textOnBg;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.font = `600 ${11 * scale}px ${FONT_UI}`;
@@ -655,10 +615,10 @@ const drawTurnIndicator = (
   ctx.fillStyle = colorFor(player);
   ctx.fill();
   ctx.lineWidth = 2 * scale;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.strokeStyle = C.discOutline;
   ctx.stroke();
 
-  ctx.fillStyle = C.textOnBlue;
+  ctx.fillStyle = C.textOnBg;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = `500 ${22 * scale}px ${FONT_UI}`;
@@ -682,13 +642,13 @@ const drawMenuButton = (
   const s = layout.scale;
 
   roundedRectPath(ctx, b.x, b.y, b.width, b.height, b.radius);
-  ctx.fillStyle = hovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.18)';
+  ctx.fillStyle = hovered ? C.btnFill : C.menuFill;
   ctx.fill();
   ctx.lineWidth = 1 * s;
-  ctx.strokeStyle = hovered ? C.boardBlue : 'rgba(255, 255, 255, 0.5)';
+  ctx.strokeStyle = hovered ? C.btnFill : C.menuBorder;
   ctx.stroke();
 
-  ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
+  ctx.fillStyle = hovered ? C.btnText : C.textOnBg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `600 ${11 * s}px ${FONT_UI}`;
@@ -706,14 +666,14 @@ const drawMenuButton = (
     const chipR = 4 * s;
 
     roundedRectPath(ctx, chipX, chipY, chipW, chipH, chipR);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fillStyle = C.kbdFill;
     ctx.fill();
     // Slightly darker bottom edge to fake the "physical key" feel.
     ctx.lineWidth = 1 * s;
-    ctx.strokeStyle = 'rgba(20, 33, 61, 0.25)';
+    ctx.strokeStyle = C.kbdBorder;
     ctx.stroke();
 
-    ctx.fillStyle = '#14213d';
+    ctx.fillStyle = C.textOnBg;
     ctx.font = `600 ${10 * s}px ${FONT_UI}`;
     ctx.fillText('Esc', chipX + chipW / 2, chipY + chipH / 2 + 1);
   }
@@ -737,7 +697,7 @@ const drawThinkingIndicator = (
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = C.textOnBlue;
+  ctx.fillStyle = C.textOnBg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `500 ${13 * scale}px ${FONT_UI}`;
@@ -760,7 +720,7 @@ const drawColumnKeyHints = (
 
   // Position: just above the top arch of the board.
   const labelY = board.y - 6 * scale;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+  ctx.fillStyle = C.hintText;
   ctx.font = `700 ${13 * scale}px ${FONT_UI}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
@@ -780,7 +740,7 @@ const drawBoardTitle = (
   const cx = board.x + board.width / 2;
   const cy = board.bodyTop + board.bodyHeight + board.bottomArchHeight / 2;
 
-  ctx.fillStyle = C.pieceRed;
+  ctx.fillStyle = C.title;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // Poppins 800 ExtraBold mimics the chunky display weight of the previous
@@ -836,10 +796,10 @@ const drawEndBanner = (
   // for a draw) — quick visual anchor for who won.
   const stripeWidth = 6 * layout.scale;
   ctx.fillStyle = state.isDraw
-    ? '#8b9ab0'
+    ? C.drawStripe
     : state.winner === 1
-      ? C.pieceRed
-      : C.pieceBlack;
+      ? C.p1
+      : C.p2;
   ctx.fillRect(
     card.x,
     card.y + 10 * layout.scale,
@@ -851,7 +811,7 @@ const drawEndBanner = (
   const message = state.isDraw
     ? "It's a draw"
     : `Player ${state.winner ?? state.currentPlayer} wins!`;
-  ctx.fillStyle = C.textOnCard;
+  ctx.fillStyle = C.cardText;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = `700 ${22 * layout.scale}px ${FONT_UI}`;
@@ -862,14 +822,9 @@ const drawEndBanner = (
   const hovered = anim.resetHovered;
 
   roundedRectPath(ctx, btn.x, btn.y, btn.width, btn.height, btn.radius);
-  ctx.fillStyle = hovered ? C.buttonHover : C.boardBlue;
+  ctx.fillStyle = hovered ? C.btnFillHover : C.btnFill;
   ctx.fill();
-  if (hovered) {
-    ctx.lineWidth = 2 * layout.scale;
-    ctx.strokeStyle = C.boardBlue;
-    ctx.stroke();
-  }
-  ctx.fillStyle = hovered ? C.boardBlue : C.textOnBlue;
+  ctx.fillStyle = C.btnText;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `600 ${15 * layout.scale}px ${FONT_UI}`;

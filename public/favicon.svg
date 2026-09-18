@@ -2,25 +2,37 @@
   <title>Connect 4</title>
 
   <!--
-    Compact Connect 4 board fragment. Uses the same palette as the canvas
-    renderer so the icon and the in-app board feel like the same artifact:
-      #1565c0 — board blue (frame)
-      #fbc02d — board yellow (front face)
-      #f44336 — red piece
-      #1a1a1a — black piece
+    Compact Connect 4 board fragment. Uses the same Night Owl tokens as the
+    canvas renderer so the icon and the in-app board feel like the same
+    artifact:
+      #011627 — background.base (frame)
+      #1d3b53 — background.medium (front face)
+      #f07178 — accent.pink (player one)
+      #7fdbca — accent.cyan (player two)
+    The face is only two steps lighter than the frame, so at 16px a hairline
+    keeps the board readable as a distinct shape rather than one dark blob.
     Designed at 32x32 viewBox; renders cleanly down to 16px and up to
     the 80px README hero.
   -->
 
-  <!-- Blue board frame -->
-  <rect width="32" height="32" rx="5" fill="#1565c0" />
+  <!-- Board frame -->
+  <rect width="32" height="32" rx="5" fill="#011627" />
 
-  <!-- Yellow board face -->
-  <rect x="3" y="5" width="26" height="22" rx="3" fill="#fbc02d" />
+  <!-- Board face -->
+  <rect
+    x="3"
+    y="5"
+    width="26"
+    height="22"
+    rx="3"
+    fill="#1d3b53"
+    stroke="#2c4f6b"
+    stroke-width="0.75"
+  />
 
-  <!-- 2x2 grid of pieces — two reds on the diagonal, two blacks on the other -->
-  <circle cx="10" cy="11" r="3.3" fill="#f44336" />
-  <circle cx="22" cy="11" r="3.3" fill="#1a1a1a" />
-  <circle cx="10" cy="21" r="3.3" fill="#1a1a1a" />
-  <circle cx="22" cy="21" r="3.3" fill="#f44336" />
+  <!-- 2x2 grid of pieces — two coral on the diagonal, two mint on the other -->
+  <circle cx="10" cy="11" r="3.3" fill="#f07178" />
+  <circle cx="22" cy="11" r="3.3" fill="#7fdbca" />
+  <circle cx="10" cy="21" r="3.3" fill="#7fdbca" />
+  <circle cx="22" cy="21" r="3.3" fill="#f07178" />
 </svg>
