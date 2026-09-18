@@ -187,23 +187,10 @@ const drawPiecesForBoard = (
         : 0;
       const fullyHighlighted = isWinner && highlightP >= 1 && dropP >= 1;
 
-      // Pulse ring under fully-highlighted pieces. Skipped while the piece
-      // is still fading in or still in mid-drop.
-      if (fullyHighlighted) {
-        const ring = winPulseRing(now);
-        ctx.save();
-        ctx.globalAlpha = ring.alpha;
-        ctx.strokeStyle = C.winnerRing;
-        ctx.lineWidth = layout.cell.size * 0.06;
-        circlePath(
-          ctx,
-          finalCenter.x,
-          finalCenter.y,
-          layout.cell.pieceRadius * ring.radiusFactor,
-        );
-        ctx.stroke();
-        ctx.restore();
-      }
+      // NB: the pulse ring is NOT drawn here. It expands to 1.6x the piece
+      // radius, and pieceRadius === holeRadius, so drawing it in this pass
+      // put 60% of its travel underneath the board face painted in step 6.
+      // It gets its own pass after the face — see drawWinPulseRings.
 
       const scale = fullyHighlighted ? winPulseScale(now) : 1;
       const radius = layout.cell.pieceRadius * scale;
@@ -287,6 +274,96 @@ const drawPiecesForBoard = (
       ctx.restore();
     }
   }
+};
+
+/**
+ * Expanding pulse rings around each fully-highlighted winning piece.
+ *
+ * Drawn in its own pass *after* the board face rather than with the pieces:
+ * the ring grows to 1.6x the piece radius, and a piece is exactly the size
+ * of its hole, so anything past the first instant of the animation is hidden
+ * behind the face if it's painted with the pieces. The rings are a highlight
+ * effect on top of the board, not something seen through a slot.
+ *
+ * Mirrors the gating in drawPiecesForBoard: a ring only appears once its
+ * piece has finished dropping and finished its fade-to-white.
+ */
+const drawWinPulseRings = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  winningPieces: ReadonlyArray<WinningPiece>,
+  anim: AnimState,
+  now: number,
+): void => {
+  if (winningPieces.length === 0) return;
+
+  const ring = winPulseRing(now);
+  if (ring.alpha <= 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = ring.alpha;
+  ctx.strokeStyle = C.winnerRing;
+  ctx.lineWidth = layout.cell.size * 0.06;
+
+  winningPieces.forEach((piece, idx) => {
+    const dropP = dropProgress(anim, piece.column, piece.row, now);
+    const highlightP = winPieceHighlightProgress(anim, idx, now);
+    if (dropP < 1 || highlightP < 1) return;
+
+    const c = cellCenter(layout, piece.column, piece.row);
+    circlePath(ctx, c.x, c.y, layout.cell.pieceRadius * ring.radiusFactor);
+    ctx.stroke();
+  });
+
+  ctx.restore();
+};
+
+/**
+ * A single glossy chip, detached from the board grid. Used by the end banner
+ * for its result token so the banner speaks the same material language as
+ * the pieces. Deliberately not shared with drawPiecesForBoard — that pass
+ * interleaves the winner cross-fade between the body and the emboss ring,
+ * and folding both call sites into one function costs more in parameters
+ * than the twenty lines it would save.
+ */
+const drawChip = (
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  fill: string,
+  soft: string,
+): void => {
+  const body = ctx.createRadialGradient(
+    cx - radius * 0.35,
+    cy - radius * 0.35,
+    radius * 0.05,
+    cx,
+    cy,
+    radius,
+  );
+  body.addColorStop(0, soft);
+  body.addColorStop(0.6, fill);
+  body.addColorStop(1, fill);
+  ctx.fillStyle = body;
+  circlePath(ctx, cx, cy, radius);
+  ctx.fill();
+
+  ctx.save();
+  ctx.lineWidth = Math.max(1, radius * 0.07);
+  ctx.strokeStyle = C.pieceEmboss;
+  circlePath(ctx, cx, cy, radius - ctx.lineWidth / 2);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(cx - radius * 0.32, cy - radius * 0.42);
+  ctx.rotate(-Math.PI / 6);
+  ctx.fillStyle = C.pieceSpecular;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 0.28, radius * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 };
 
 // ───────────────────────── board (with holes) ─────────────────────────
@@ -782,52 +859,107 @@ const drawEndBanner = (
   ctx.scale(scaleAnim, scaleAnim);
   ctx.translate(-cardCx, -cardCy);
 
-  // Banner body with a soft drop-shadow so it lifts off the canvas.
+  const s = layout.scale;
+  const winner = state.winner ?? state.currentPlayer;
+  // The result colour drives the glow, the border and the chip, so the
+  // banner reads as belonging to whoever won before you read a word of it.
+  const accent = state.isDraw ? C.drawStripe : winner === 1 ? C.p1 : C.p2;
+  const accentSoft = state.isDraw
+    ? C.drawStripeSoft
+    : winner === 1
+      ? C.p1Soft
+      : C.p2Soft;
+
+  // ── glow ──
+  // A wash of the result colour behind the card. Low enough that it never
+  // resolves into a visible shape, but it keeps the banner from reading as
+  // a grey slab dropped on the scene.
+  const glowR = card.width * 0.6;
+  const glow = ctx.createRadialGradient(cardCx, cardCy, 0, cardCx, cardCy, glowR);
+  glow.addColorStop(0, alpha(accent, 0.16));
+  glow.addColorStop(1, alpha(accent, 0));
+  ctx.fillStyle = glow;
+  ctx.fillRect(cardCx - glowR, cardCy - glowR, glowR * 2, glowR * 2);
+
+  // ── body ──
+  // Vertical gradient rather than a flat fill: on a dark ground a drop
+  // shadow has nothing to fall against, so the tonal shift is what actually
+  // reads as a raised surface.
   ctx.save();
   ctx.shadowColor = C.cardShadow;
-  ctx.shadowBlur = 18 * layout.scale;
-  ctx.shadowOffsetY = 4 * layout.scale;
+  ctx.shadowBlur = 18 * s;
+  ctx.shadowOffsetY = 4 * s;
   roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
-  ctx.fillStyle = C.cardBg;
+  const body = ctx.createLinearGradient(0, card.y, 0, card.y + card.height);
+  body.addColorStop(0, C.cardTop);
+  body.addColorStop(1, C.cardBottom);
+  ctx.fillStyle = body;
   ctx.fill();
   ctx.restore();
 
-  // Left side: colored accent stripe in the winner's color (or neutral grey
-  // for a draw) — quick visual anchor for who won.
-  const stripeWidth = 6 * layout.scale;
-  ctx.fillStyle = state.isDraw
-    ? C.drawStripe
-    : state.winner === 1
-      ? C.p1
-      : C.p2;
-  ctx.fillRect(
-    card.x,
-    card.y + 10 * layout.scale,
-    stripeWidth,
-    card.height - 20 * layout.scale,
-  );
+  // Hairline border in the result colour, and a brighter hairline just
+  // inside the top edge — the two together are what sell "lit from above".
+  roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.strokeStyle = alpha(accent, 0.45);
+  ctx.stroke();
 
-  // Message text — left-aligned next to the stripe.
+  ctx.save();
+  roundedRectPath(ctx, card.x, card.y, card.width, card.height, card.radius);
+  ctx.clip();
+  ctx.fillStyle = C.cardHighlight;
+  ctx.fillRect(card.x, card.y, card.width, Math.max(1, 1.5 * s));
+  ctx.restore();
+
+  // ── result chip ──
+  // The winner's own piece, drawn with the board's material language. For a
+  // draw it's a neutral token, which reads as "neither" without a caption.
+  const chipR = 17 * s;
+  const chipCx = card.x + 32 * s;
+  drawChip(ctx, chipCx, cardCy, chipR, accent, accentSoft);
+
+  // ── text ──
+  // Two levels instead of one flat line: a small letterspaced caption over
+  // the result itself.
+  const textX = chipCx + chipR + 16 * s;
+  const caption = state.isDraw ? 'GAME OVER' : 'WINNER';
   const message = state.isDraw
     ? "It's a draw"
-    : `Player ${state.winner ?? state.currentPlayer} wins!`;
-  ctx.fillStyle = C.cardText;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.font = `700 ${22 * layout.scale}px ${FONT_UI}`;
-  ctx.fillText(message, card.x + stripeWidth + 16 * layout.scale, cardCy);
+    : `Player ${winner}${state.aiPlayer === winner ? ' (CPU)' : ''}`;
 
-  // Menu button on the right.
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.save();
+  // letterSpacing is ignored by engines that don't support it, which costs
+  // the caption nothing but the tracking.
+  ctx.letterSpacing = `${1.4 * s}px`;
+  ctx.fillStyle = state.isDraw ? C.cardCaption : accent;
+  ctx.font = `700 ${11 * s}px ${FONT_UI}`;
+  ctx.fillText(caption, textX, cardCy - 7 * s);
+  ctx.restore();
+
+  ctx.fillStyle = C.cardText;
+  ctx.font = `700 ${21 * s}px ${FONT_UI}`;
+  ctx.fillText(message, textX, cardCy + 19 * s);
+
+  // ── menu button ──
   const btn = layout.overlay.button;
   const hovered = anim.resetHovered;
 
+  ctx.save();
+  ctx.shadowColor = alpha(C.btnFill, hovered ? 0.45 : 0.3);
+  ctx.shadowBlur = (hovered ? 14 : 8) * s;
+  ctx.shadowOffsetY = 2 * s;
   roundedRectPath(ctx, btn.x, btn.y, btn.width, btn.height, btn.radius);
   ctx.fillStyle = hovered ? C.btnFillHover : C.btnFill;
   ctx.fill();
+  ctx.restore();
+
   ctx.fillStyle = C.btnText;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `600 ${15 * layout.scale}px ${FONT_UI}`;
+  ctx.font = `600 ${15 * s}px ${FONT_UI}`;
   ctx.fillText('Menu', btn.x + btn.width / 2, btn.y + btn.height / 2 + 1);
 
   ctx.restore();
@@ -865,6 +997,7 @@ export const paintAttract = (
   drawBoardWithHoles(ctx, layout);
   drawHoleRims(ctx, layout);
   drawTopArchHighlight(ctx, layout);
+  drawWinPulseRings(ctx, layout, view.winningPieces, anim, now);
   drawBoardTitle(ctx, layout);
 };
 
@@ -930,6 +1063,10 @@ export const paint = (
   //    positioned to sit on the yellow.
   drawHoleRims(ctx, layout);
   drawTopArchHighlight(ctx, layout);
+
+  // 7b. Win pulse rings. Must come after the face: they expand past the hole
+  //     they belong to, so painting them with the pieces would clip them.
+  drawWinPulseRings(ctx, layout, state.winningPieces, anim, now);
 
   // 8. Column key hints — "1" through "7" above each column. Shown only
   //    while the game is live (a true hint applies only when input matters)

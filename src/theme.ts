@@ -170,11 +170,19 @@ export const game = {
   clockBgActive: alpha(background.medium, 0.85),
   discOutline: alpha(text.primary, 0.35),
 
-  // End-of-game banner.
-  cardBg: background.elevated,
+  // End-of-game banner. A vertical gradient plus a hairline of light along
+  // the top inner edge is what reads as "raised" on a dark ground — a drop
+  // shadow alone has nothing to fall against.
+  cardTop: background.elevated,
+  cardBottom: background.surface,
   cardShadow: alpha(background.floor, 0.55),
-  cardText: primary.main,
+  cardHighlight: alpha(text.primary, 0.1),
+  cardText: text.primary,
+  cardCaption: text.muted,
+  // The draw token is a chip like any other, so it needs a lit stop too —
+  // otherwise it renders flat next to the winner's and looks unfinished.
   drawStripe: text.muted,
+  drawStripeSoft: mix(text.muted, neutral.white, 0.35),
 
   // Buttons (banner "Menu" + in-canvas MENU). Filled in the brand blue with
   // inverse text; hover lifts to the lighter tint rather than swapping to white.
