@@ -4,7 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <!--
+      Social preview. 1200x630 is the Open Graph standard; declaring the
+      dimensions lets scrapers reserve the right box before the image loads.
+      Regenerate public/connect4.png whenever the board theme changes — it's
+      key art built from the app's own renderer, not a stock asset.
+    -->
     <meta property="og:image" content="https://raw.githubusercontent.com/dangervalentine/react-connect4/refs/heads/master/public/connect4.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Connect 4 title art: the wordmark CONNECT 4 beside a dark slate board holding a mid-game pyramid of coral and mint discs."
+    />
 
     <!--
       Night Owl base tone. Tints the mobile browser chrome and tells the UA to
