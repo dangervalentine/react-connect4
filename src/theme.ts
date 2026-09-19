@@ -170,24 +170,14 @@ export const game = {
   clockBgActive: alpha(background.medium, 0.85),
   discOutline: alpha(text.primary, 0.35),
 
-  // End-of-game banner. A vertical gradient plus a hairline of light along
-  // the top inner edge is what reads as "raised" on a dark ground — a drop
-  // shadow alone has nothing to fall against.
-  cardTop: background.elevated,
-  cardBottom: background.surface,
-  cardShadow: alpha(background.floor, 0.55),
-  cardHighlight: alpha(text.primary, 0.1),
-  cardText: text.primary,
-  cardCaption: text.muted,
-  // The draw token is a chip like any other, so it needs a lit stop too —
-  // otherwise it renders flat next to the winner's and looks unfinished.
+  // Draw colour for the result card's chip and accent, exported to CSS by
+  // cssVars(). Needs a lit stop like any other chip, or it renders flat next
+  // to the winner's and looks unfinished.
   drawStripe: text.muted,
   drawStripeSoft: mix(text.muted, neutral.white, 0.35),
 
-  // Buttons (banner "Menu" + in-canvas MENU). Filled in the brand blue with
-  // inverse text; hover lifts to the lighter tint rather than swapping to white.
+  // In-canvas MENU button. Filled in the brand blue with inverse text.
   btnFill: primary.main,
-  btnFillHover: primary.light,
   btnText: text.inverse,
 
   menuFill: alpha(text.primary, 0.1),
@@ -226,6 +216,25 @@ export const cssVars = (): Record<string, string> => {
   vars['--ui-shadow-deep'] = alpha(colors.background.floor, 0.7);
   vars['--ui-focus-ring'] = colors.primary.main;
   vars['--ui-primary-glow'] = alpha(colors.primary.main, 0.28);
+
+  // End-of-game result card (DOM overlay — see .result in App.css). The card
+  // is a translucent pane over the canvas, so its fill carries alpha. The chip
+  // reuses the exact piece colours the canvas paints with, and the line / glow
+  // alphas are pre-composited here because plain CSS can't derive them from a
+  // hex without color-mix().
+  vars['--ui-result-fill'] = alpha(colors.background.elevated, 0.82);
+  vars['--ui-p1'] = game.p1;
+  vars['--ui-p1-soft'] = game.p1Soft;
+  vars['--ui-p1-line'] = alpha(game.p1, 0.45);
+  vars['--ui-p1-glow'] = alpha(game.p1, 0.18);
+  vars['--ui-p2'] = game.p2;
+  vars['--ui-p2-soft'] = game.p2Soft;
+  vars['--ui-p2-line'] = alpha(game.p2, 0.45);
+  vars['--ui-p2-glow'] = alpha(game.p2, 0.18);
+  vars['--ui-draw'] = game.drawStripe;
+  vars['--ui-draw-soft'] = game.drawStripeSoft;
+  vars['--ui-draw-line'] = alpha(game.drawStripe, 0.45);
+  vars['--ui-draw-glow'] = alpha(game.drawStripe, 0.18);
 
   return vars;
 };

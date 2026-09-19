@@ -50,6 +50,7 @@ const App = () => {
   const showOverlay = useGameStore((s) => s.showOverlay);
   const winner = useGameStore((s) => s.winner);
   const isDraw = useGameStore((s) => s.isDraw);
+  const aiPlayer = useGameStore((s) => s.aiPlayer);
   const openSetup = useGameStore((s) => s.openSetup);
   const isPlaying = useGameStore((s) => s.isPlaying);
   const timersEnabled = useGameStore((s) => s.timersEnabled);
@@ -154,9 +155,6 @@ const App = () => {
           }
         }
       }
-      if (state.showOverlay && anim.overlayShownAt === null) {
-        anim.overlayShownAt = performance.now();
-      }
     };
     seedFromBoard();
 
@@ -221,12 +219,6 @@ const App = () => {
         anim.winSequenceStartedAt = null;
         ++endRevealGen;
         cancelPendingReveal();
-      }
-
-      if (state.showOverlay && !prev.showOverlay) {
-        anim.overlayShownAt = now;
-      } else if (!state.showOverlay && prev.showOverlay) {
-        anim.overlayShownAt = null;
       }
     });
 
@@ -412,9 +404,13 @@ const App = () => {
     };
   }, []);
 
-  const overlayLabel = isDraw
-    ? 'Game ended in a draw. Press Enter for menu.'
-    : `Player ${winner ?? ''} wins. Press Enter for menu.`;
+  // Longest string this can produce is "Player 2 (CPU)" — the headline's
+  // clamp() is sized against it so it never wraps.
+  const resultCaption = isDraw ? 'Game over' : 'Winner';
+  const resultMessage = isDraw
+    ? "It's a draw"
+    : `Player ${winner ?? ''}${aiPlayer !== null && aiPlayer === winner ? ' (CPU)' : ''}`;
+  const resultKind = isDraw ? 'draw' : `p${winner ?? 1}`;
 
   return (
     <div className="App">
@@ -422,20 +418,35 @@ const App = () => {
       <div ref={wrapRef} className="canvas-wrap">
         <canvas ref={canvasRef} aria-label="Connect 4 game board" role="img" />
         {/*
-          Visually-hidden Menu button. The visible button is canvas-painted;
-          this one exists purely so screen-reader / keyboard-only users can
-          still finish a game. autoFocus pulls focus when the overlay opens.
+          End-of-game result. A DOM overlay rather than canvas paint: the
+          canvas scales linearly off a 700px design width, which halves every
+          measurement on a phone. clamp()-driven type here self-scales, and
+          the Menu button becomes a real focusable control instead of the
+          visually-hidden proxy it used to need. The overlay is always
+          mounted so nothing reflows when the result arrives or leaves.
         */}
-        {showOverlay && (
-          <button
-            type="button"
-            className="sr-only"
-            onClick={openSetup}
-            autoFocus
-          >
-            {overlayLabel}
-          </button>
-        )}
+        <div className="result-overlay">
+          {showOverlay && (
+            <div
+              className="result"
+              data-result={resultKind}
+              role="status"
+              aria-live="polite"
+            >
+              <span className="result-chip" aria-hidden="true" />
+              <p className="result-caption">{resultCaption}</p>
+              <p className="result-headline">{resultMessage}</p>
+              <button
+                type="button"
+                className="result-action"
+                onClick={openSetup}
+                autoFocus
+              >
+                Menu
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       {gamePhase === 'setup' && <WelcomeModal />}
       {showResetConfirm && gamePhase === 'playing' && <ResetConfirmModal />}

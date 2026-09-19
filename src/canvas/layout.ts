@@ -40,24 +40,6 @@ export type Layout = {
     glowRadius: number;
   };
 
-  overlay: {
-    card: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      radius: number;
-    };
-    messageY: number;
-    button: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      radius: number;
-    };
-  };
-
   /**
    * Small "MENU" button rendered in the top-right corner during gameplay.
    * Opens the mid-game reset confirmation modal.
@@ -109,24 +91,6 @@ export const computeLayout = (width: number, height: number): Layout => {
   // metric. The container's CSS aspect-ratio is what really keeps things sane.
   void finalScale;
 
-  // ───── end-game banner ─────
-  //
-  // Replaces the previous board-covering card. The banner now occupies the
-  // same vertical band as the clocks (top of canvas) so the board stays
-  // fully visible during the end-of-game pause and the menu prompt.
-  const overlayCardWidth = clocksTotalWidth;
-  const overlayCardHeight = clocksCardHeight;
-  const overlayCardX = clocksLeft;
-  const overlayCardY = clocksTop;
-  const overlayCardRadius = 12 * scale;
-
-  // Menu button sits inside the banner on the right edge.
-  const buttonWidth = 100 * scale;
-  const buttonHeight = 38 * scale;
-  const buttonX = overlayCardX + overlayCardWidth - buttonWidth - 14 * scale;
-  const buttonY = overlayCardY + (overlayCardHeight - buttonHeight) / 2;
-  const buttonRadius = 8 * scale;
-
   // ───── in-game menu button (top-right) ─────
   const menuButtonWidth = 76 * scale;
   const menuButtonHeight = 30 * scale;
@@ -163,23 +127,6 @@ export const computeLayout = (width: number, height: number): Layout => {
       pieceRadius: cellSize * 0.43,
       glowRadius: cellSize * 0.47,
     },
-    overlay: {
-      card: {
-        x: overlayCardX,
-        y: overlayCardY,
-        width: overlayCardWidth,
-        height: overlayCardHeight,
-        radius: overlayCardRadius,
-      },
-      messageY: overlayCardY + overlayCardHeight / 2,
-      button: {
-        x: buttonX,
-        y: buttonY,
-        width: buttonWidth,
-        height: buttonHeight,
-        radius: buttonRadius,
-      },
-    },
     menuButton: {
       x: menuButtonX,
       y: menuButtonY,
@@ -212,12 +159,6 @@ export const columnAt = (layout: Layout, x: number, y: number): number | null =>
   const col = Math.floor((x - board.x - board.padding) / layout.cell.size);
   if (col < 0 || col >= COLUMNS) return null;
   return col;
-};
-
-/** True when the canvas point (x, y) lies inside the reset button rect. */
-export const isInResetButton = (layout: Layout, x: number, y: number): boolean => {
-  const b = layout.overlay.button;
-  return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
 };
 
 /** True when (x, y) lies inside the in-game MENU button (top-right). */

@@ -1,7 +1,7 @@
 import type { useGameStore } from '../store';
 import { ROWS } from '../constants';
 import type { Layout } from './layout';
-import { columnAt, isInMenuButton, isInResetButton } from './layout';
+import { columnAt, isInMenuButton } from './layout';
 import type { AnimState } from './animations';
 
 type Store = typeof useGameStore;
@@ -58,16 +58,11 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const layout = getLayout();
     const state = store.getState();
 
-    // Reset button hover is only meaningful when the overlay is showing.
-    if (state.showOverlay) {
-      anim.resetHovered = isInResetButton(layout, x, y);
-      anim.menuHovered = false;
-    } else {
-      anim.resetHovered = false;
-      // The MENU button is only shown when there's no end-game overlay.
-      anim.menuHovered =
-        state.gamePhase === 'playing' && isInMenuButton(layout, x, y);
-    }
+    // The MENU button is only shown when there's no end-game result up.
+    anim.menuHovered =
+      !state.showOverlay &&
+      state.gamePhase === 'playing' &&
+      isInMenuButton(layout, x, y);
 
     if (!isHumanTurn(state)) {
       anim.hoveredColumn = null;
@@ -87,14 +82,12 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
   const onMouseMove = (event: MouseEvent) => {
     const { x, y } = eventPoint(canvas, event);
     updateHoverFromPoint(x, y);
-    const interactive =
-      anim.resetHovered || anim.menuHovered || anim.hoveredColumn !== null;
+    const interactive = anim.menuHovered || anim.hoveredColumn !== null;
     canvas.style.cursor = interactive ? 'pointer' : 'default';
   };
 
   const onMouseLeave = () => {
     anim.hoveredColumn = null;
-    anim.resetHovered = false;
     anim.menuHovered = false;
     canvas.style.cursor = 'default';
   };
@@ -103,14 +96,6 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const { x, y } = eventPoint(canvas, event);
     const layout = getLayout();
     const state = store.getState();
-
-    // End-of-game "Menu" button: returns to the welcome modal.
-    if (state.showOverlay && isInResetButton(layout, x, y)) {
-      state.openSetup();
-      anim.hoveredColumn = null;
-      anim.resetHovered = false;
-      return;
-    }
 
     // In-game MENU button: opens the "return to setup?" confirmation.
     if (
@@ -136,13 +121,6 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     const layout = getLayout();
     const state = store.getState();
 
-    if (state.showOverlay && isInResetButton(layout, x, y)) {
-      state.openSetup();
-      anim.hoveredColumn = null;
-      anim.resetHovered = false;
-      return;
-    }
-
     if (
       state.gamePhase === 'playing' &&
       !state.showOverlay &&
@@ -166,7 +144,6 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
 
   const onTouchEnd = () => {
     anim.hoveredColumn = null;
-    anim.resetHovered = false;
     anim.menuHovered = false;
   };
 

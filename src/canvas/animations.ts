@@ -7,12 +7,8 @@ export type AnimState = {
   drops: Map<string, number>;
   /** Column the pointer is currently over, or null. */
   hoveredColumn: number | null;
-  /** True while the pointer is over the win/draw overlay's Reset button. */
-  resetHovered: boolean;
   /** True while the pointer is over the in-game MENU button (top-right). */
   menuHovered: boolean;
-  /** performance.now() when the win/draw overlay first appeared, or null. */
-  overlayShownAt: number | null;
   /**
    * performance.now() when the game-end sequence started (winning move was
    * played, or the board filled into a draw). Drives the staggered per-piece
@@ -24,9 +20,7 @@ export type AnimState = {
 export const createAnimState = (): AnimState => ({
   drops: new Map(),
   hoveredColumn: null,
-  resetHovered: false,
   menuHovered: false,
-  overlayShownAt: null,
   winSequenceStartedAt: null,
 });
 
@@ -58,12 +52,6 @@ export const easeDropBounce = (t: number): number => {
   return 1 - damping * 0.07 * Math.abs(Math.sin(settle * Math.PI * 2.5));
 };
 
-/** Strong ease-out, mimics CSS cubic-bezier(0.16, 1, 0.3, 1). */
-export const easeOutExpo = (t: number): number => {
-  const u = clamp01(t);
-  return u === 1 ? 1 : 1 - Math.pow(2, -10 * u);
-};
-
 /** Standard ease-out. */
 export const easeOutCubic = (t: number): number => {
   const u = clamp01(t);
@@ -73,7 +61,6 @@ export const easeOutCubic = (t: number): number => {
 // ───────────────────────── durations ─────────────────────────
 
 export const DROP_DURATION_MS = 500;
-export const OVERLAY_CARD_MS = 320;
 /** One full pulse cycle of a winning piece. */
 export const WIN_PULSE_PERIOD_MS = 1400;
 
@@ -153,13 +140,4 @@ export const winPulseRing = (
     radiusFactor: 1 + phase * 0.6, // 1.0 → 1.6× cell radius
     alpha: 0.55 * (1 - phase),
   };
-};
-
-/** Card progress 0..1 (used for scale + opacity of the win/draw card). */
-export const overlayCardProgress = (
-  anim: AnimState,
-  now: number,
-): number => {
-  if (anim.overlayShownAt === null) return 0;
-  return easeOutExpo((now - anim.overlayShownAt) / OVERLAY_CARD_MS);
 };
