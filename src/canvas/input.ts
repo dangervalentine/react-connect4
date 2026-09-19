@@ -2,7 +2,7 @@ import type { useGameStore } from '../store';
 import { ROWS } from '../constants';
 import type { Layout } from './layout';
 import { columnAt, isInMenuButton } from './layout';
-import type { AnimState } from './animations';
+import { setHoveredColumn, type AnimState } from './animations';
 
 type Store = typeof useGameStore;
 
@@ -65,10 +65,10 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
       isInMenuButton(layout, x, y);
 
     if (!isHumanTurn(state)) {
-      anim.hoveredColumn = null;
+      setHoveredColumn(anim, null);
       return;
     }
-    anim.hoveredColumn = columnAt(layout, x, y);
+    setHoveredColumn(anim, columnAt(layout, x, y));
   };
 
   const tryDropInColumn = (col: number) => {
@@ -87,7 +87,7 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
   };
 
   const onMouseLeave = () => {
-    anim.hoveredColumn = null;
+    setHoveredColumn(anim, null);
     anim.menuHovered = false;
     canvas.style.cursor = 'default';
   };
@@ -112,39 +112,85 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     if (col !== null) tryDropInColumn(col);
   };
 
+  // Touch input is deferred: touchstart only arms the gesture and lights up
+  // the hover state, and the actual drop (or MENU press) happens on release.
+  // That lets a finger slide between columns before committing, and lifting
+  // off outside every column cancels the move entirely.
+  let activeTouchId: number | null = null;
+  let touchStartedOnMenu = false;
+
+  const findActiveTouch = (list: TouchList): Touch | null => {
+    if (activeTouchId === null) return null;
+    for (let i = 0; i < list.length; i += 1) {
+      if (list[i].identifier === activeTouchId) return list[i];
+    }
+    return null;
+  };
+
+  const clearTouch = () => {
+    activeTouchId = null;
+    touchStartedOnMenu = false;
+    setHoveredColumn(anim, null);
+    anim.menuHovered = false;
+  };
+
   const onTouchStart = (event: TouchEvent) => {
     if (event.touches.length === 0) return;
     event.preventDefault();
-    const touch = event.touches[0];
+    if (activeTouchId !== null) return; // ignore extra fingers mid-gesture
+
+    const touch = event.changedTouches[0];
+    activeTouchId = touch.identifier;
+
     const { x, y } = eventPoint(canvas, touch);
-    updateHoverFromPoint(x, y);
     const layout = getLayout();
     const state = store.getState();
 
+    touchStartedOnMenu =
+      state.gamePhase === 'playing' &&
+      !state.showOverlay &&
+      isInMenuButton(layout, x, y);
+
+    updateHoverFromPoint(x, y);
+  };
+
+  const onTouchMove = (event: TouchEvent) => {
+    const touch = findActiveTouch(event.touches);
+    if (!touch) return;
+    const { x, y } = eventPoint(canvas, touch);
+    updateHoverFromPoint(x, y);
+  };
+
+  const onTouchEnd = (event: TouchEvent) => {
+    const touch = findActiveTouch(event.changedTouches);
+    if (!touch) return;
+
+    const { x, y } = eventPoint(canvas, touch);
+    const layout = getLayout();
+    const state = store.getState();
+
+    // A press that both started and ended on MENU opens the reset prompt.
     if (
+      touchStartedOnMenu &&
       state.gamePhase === 'playing' &&
       !state.showOverlay &&
       isInMenuButton(layout, x, y)
     ) {
+      clearTouch();
       state.requestReset();
-      anim.menuHovered = false;
       return;
     }
 
-    const col = columnAt(layout, x, y);
+    // Released over a column — drop there. Released anywhere else (a swipe
+    // off the edge of the board) is a deliberate cancel, so do nothing.
+    const col = touchStartedOnMenu ? null : columnAt(layout, x, y);
+    clearTouch();
     if (col !== null) tryDropInColumn(col);
   };
 
-  const onTouchMove = (event: TouchEvent) => {
-    if (event.touches.length === 0) return;
-    const touch = event.touches[0];
-    const { x, y } = eventPoint(canvas, touch);
-    updateHoverFromPoint(x, y);
-  };
-
-  const onTouchEnd = () => {
-    anim.hoveredColumn = null;
-    anim.menuHovered = false;
+  const onTouchCancel = (event: TouchEvent) => {
+    if (!findActiveTouch(event.changedTouches)) return;
+    clearTouch();
   };
 
   // Keyboard: digits 1–7 drop in that column when it's the human's turn;
@@ -194,6 +240,7 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
   canvas.addEventListener('touchstart', onTouchStart, { passive: false });
   canvas.addEventListener('touchmove', onTouchMove, { passive: true });
   canvas.addEventListener('touchend', onTouchEnd);
+  canvas.addEventListener('touchcancel', onTouchCancel);
   window.addEventListener('keydown', onKeyDown);
 
   return () => {
@@ -203,6 +250,7 @@ export const setupInputs = (ctx: InputCtx): (() => void) => {
     canvas.removeEventListener('touchstart', onTouchStart);
     canvas.removeEventListener('touchmove', onTouchMove);
     canvas.removeEventListener('touchend', onTouchEnd);
+    canvas.removeEventListener('touchcancel', onTouchCancel);
     window.removeEventListener('keydown', onKeyDown);
   };
 };

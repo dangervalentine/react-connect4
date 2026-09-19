@@ -1,3 +1,5 @@
+import type { Player } from '../constants';
+
 /**
  * Mutable animation state held outside React. Updated by store subscribers
  * and input handlers, read by the paint function on every frame.
@@ -7,8 +9,24 @@ export type AnimState = {
   drops: Map<string, number>;
   /** Column the pointer is currently over, or null. */
   hoveredColumn: number | null;
+  /**
+   * Column the hover *just left*, kept alive so its glow can fade out while
+   * the new one fades in. Sliding a finger across the board then reads as a
+   * light moving between columns rather than a hard cut.
+   */
+  prevHoveredColumn: number | null;
+  /** performance.now() of the last `hoveredColumn` change — drives the fade. */
+  hoverChangedAt: number;
   /** True while the pointer is over the in-game MENU button (top-right). */
   menuHovered: boolean;
+  /**
+   * performance.now() when the turn last passed to a new player. Drives the
+   * hand-off animation in the clock band — 0 means "no switch has happened",
+   * which reads as a completed (i.e. static) transition.
+   */
+  turnChangedAt: number;
+  /** Who held the turn before the current player, so both sides can cross-fade. */
+  prevPlayer: Player | null;
   /**
    * performance.now() when the game-end sequence started (winning move was
    * played, or the board filled into a draw). Drives the staggered per-piece
@@ -20,11 +38,34 @@ export type AnimState = {
 export const createAnimState = (): AnimState => ({
   drops: new Map(),
   hoveredColumn: null,
+  prevHoveredColumn: null,
+  hoverChangedAt: 0,
   menuHovered: false,
+  turnChangedAt: 0,
+  prevPlayer: null,
   winSequenceStartedAt: null,
 });
 
 export const cellKey = (col: number, row: number): string => `${col},${row}`;
+
+/** Cross-fade duration when the hovered column changes. */
+export const HOVER_FADE_MS = 140;
+
+/**
+ * Set the hovered column, recording the outgoing one so the renderer can
+ * cross-fade. Always go through this rather than assigning `hoveredColumn`
+ * directly, or the fade bookkeeping silently desyncs.
+ */
+export const setHoveredColumn = (
+  anim: AnimState,
+  column: number | null,
+  now: number = performance.now(),
+): void => {
+  if (anim.hoveredColumn === column) return;
+  anim.prevHoveredColumn = anim.hoveredColumn;
+  anim.hoveredColumn = column;
+  anim.hoverChangedAt = now;
+};
 
 // ───────────────────────── easing ─────────────────────────
 
@@ -122,6 +163,59 @@ export const dropProgress = (
   const startedAt = anim.drops.get(cellKey(col, row));
   if (startedAt === undefined) return 1;
   return easeDropBounce((now - startedAt) / DROP_DURATION_MS);
+};
+
+/**
+ * Fade weight (0..1) for a column's hover glow. The live column eases in and
+ * the one just left eases out, so both can be painted in the same frame.
+ * Returns 0 for any other column.
+ */
+export const columnHoverAlpha = (
+  anim: AnimState,
+  column: number,
+  now: number,
+): number => {
+  const t = easeOutCubic((now - anim.hoverChangedAt) / HOVER_FADE_MS);
+  if (column === anim.hoveredColumn) return t;
+  if (column === anim.prevHoveredColumn) return 1 - t;
+  return 0;
+};
+
+/**
+ * How long the turn hand-off takes. Tuned to land just after
+ * `DROP_DURATION_MS` so the baton finishes passing right as the piece that
+ * caused the switch settles into its slot.
+ */
+export const TURN_SWITCH_MS = 560;
+
+/**
+ * Weight (0..1) of a player's "it's your turn" treatment. The incoming player
+ * eases in while the outgoing one eases out, so the clock band cross-fades
+ * instead of snapping. Anyone who is neither gets 0.
+ */
+export const turnWeight = (
+  anim: AnimState,
+  player: Player,
+  currentPlayer: Player,
+  now: number,
+): number => {
+  const t = easeOutCubic((now - anim.turnChangedAt) / TURN_SWITCH_MS);
+  if (player === currentPlayer) return t;
+  if (player === anim.prevPlayer) return 1 - t;
+  return 0;
+};
+
+/**
+ * One-shot 0 → 1 → 0 flare over the hand-off, for effects that should announce
+ * the switch and then get out of the way (the bloom around the newly active
+ * card, the ring that leaves the turn disc). Sine rather than a triangle so
+ * it has no corner at the peak.
+ */
+export const turnFlare = (anim: AnimState, now: number): number => {
+  if (anim.turnChangedAt === 0) return 0;
+  const t = (now - anim.turnChangedAt) / TURN_SWITCH_MS;
+  if (t <= 0 || t >= 1) return 0;
+  return Math.sin(t * Math.PI);
 };
 
 /** Scale factor for a winning piece's pulse, oscillating 1.0..1.06. */

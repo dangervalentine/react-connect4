@@ -14,6 +14,7 @@ import { setupInputs } from './canvas/input';
 import { cancelChooseMove, chooseMoveAsync } from './ai/engineClient';
 import { createAttract, resetAttract, stepAttract } from './ai/attractDemo';
 import { GithubAttribution } from './components/GithubAttribution';
+import { Header } from './components/Header';
 import { KeyboardHintsToggle } from './components/KeyboardHintsToggle';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ResetConfirmModal } from './components/ResetConfirmModal';
@@ -198,6 +199,16 @@ const App = () => {
             }
           }
         }
+      }
+
+      // Turn hand-off. Also fires on the opening move of a game (setup →
+      // playing) so the first player's card animates in rather than being
+      // lit from the first frame.
+      const gameJustStarted =
+        state.gamePhase === 'playing' && prev.gamePhase !== 'playing';
+      if (state.currentPlayer !== prev.currentPlayer || gameJustStarted) {
+        anim.prevPlayer = gameJustStarted ? null : prev.currentPlayer;
+        anim.turnChangedAt = now;
       }
 
       // Game just ended: kick off the win sequence + schedule the banner.
@@ -414,40 +425,48 @@ const App = () => {
 
   return (
     <div className="App">
+      <Header />
       <KeyboardHintsToggle />
-      <div ref={wrapRef} className="canvas-wrap">
-        <canvas ref={canvasRef} aria-label="Connect 4 game board" role="img" />
-        {/*
-          End-of-game result. A DOM overlay rather than canvas paint: the
-          canvas scales linearly off a 700px design width, which halves every
-          measurement on a phone. clamp()-driven type here self-scales, and
-          the Menu button becomes a real focusable control instead of the
-          visually-hidden proxy it used to need. The overlay is always
-          mounted so nothing reflows when the result arrives or leaves.
-        */}
-        <div className="result-overlay">
-          {showOverlay && (
-            <div
-              className="result"
-              data-result={resultKind}
-              role="status"
-              aria-live="polite"
-            >
-              <span className="result-chip" aria-hidden="true" />
-              <p className="result-caption">{resultCaption}</p>
-              <p className="result-headline">{resultMessage}</p>
-              <button
-                type="button"
-                className="result-action"
-                onClick={openSetup}
-                autoFocus
+      {/*
+        The stage takes whatever height the header leaves. .canvas-wrap sizes
+        itself against that same remainder (see --header-h in App.css), so the
+        board stays fully on screen with the bar above it.
+      */}
+      <main className="stage">
+        <div ref={wrapRef} className="canvas-wrap">
+          <canvas ref={canvasRef} aria-label="Connect 4 game board" role="img" />
+          {/*
+            End-of-game result. A DOM overlay rather than canvas paint: the
+            canvas scales linearly off a 700px design width, which halves every
+            measurement on a phone. clamp()-driven type here self-scales, and
+            the Menu button becomes a real focusable control instead of the
+            visually-hidden proxy it used to need. The overlay is always
+            mounted so nothing reflows when the result arrives or leaves.
+          */}
+          <div className="result-overlay">
+            {showOverlay && (
+              <div
+                className="result"
+                data-result={resultKind}
+                role="status"
+                aria-live="polite"
               >
-                Menu
-              </button>
-            </div>
-          )}
+                <span className="result-chip" aria-hidden="true" />
+                <p className="result-caption">{resultCaption}</p>
+                <p className="result-headline">{resultMessage}</p>
+                <button
+                  type="button"
+                  className="result-action"
+                  onClick={openSetup}
+                  autoFocus
+                >
+                  Menu
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
       {gamePhase === 'setup' && <WelcomeModal />}
       {showResetConfirm && gamePhase === 'playing' && <ResetConfirmModal />}
       <GithubAttribution />

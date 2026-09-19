@@ -1,13 +1,16 @@
 import { COLUMNS, ROWS, type Cell, type GameBoard, type Player, type WinningPiece } from '../constants';
 import { selectShowKeyboardHints, type useGameStore } from '../store';
-import { alpha, colors, game } from '../theme';
+import { alpha, colors, game, mix } from '../theme';
 import {
   cellCenter,
   type Layout,
 } from './layout';
 import {
   type AnimState,
+  columnHoverAlpha,
   dropProgress,
+  turnFlare,
+  turnWeight,
   winPieceHighlightProgress,
   winPulseRing,
   winPulseScale,
@@ -514,42 +517,152 @@ const drawBoardFeet = (
 
 // ───────────────────────── hover ─────────────────────────
 
-const drawHover = (
+/**
+ * The row a piece dropped into `col` would land in — the lowest empty cell.
+ * -1 when the column is full.
+ */
+const landingRow = (column: ReadonlyArray<Cell>): number => {
+  const firstNonZero = column.findIndex((v) => v !== 0);
+  return firstNonZero === -1 ? ROWS - 1 : firstNonZero - 1;
+};
+
+/**
+ * True when the human is entitled to a hover preview at all. Nothing is
+ * previewed on the AI's turn — the player can't act, so a ghost would lie.
+ */
+const hoverAllowed = (state: GameState): boolean => {
+  if (!state.isPlaying) return false;
+  return !(state.aiPlayer !== null && state.currentPlayer === state.aiPlayer);
+};
+
+/**
+ * Columns with a live hover weight this frame: the one under the pointer
+ * easing in, plus the one it just left easing out. Usually 0 or 1 entries,
+ * briefly 2 mid-slide.
+ */
+const hoveredColumns = (
+  anim: AnimState,
+  now: number,
+): Array<{ col: number; weight: number }> => {
+  const out: Array<{ col: number; weight: number }> = [];
+  for (const col of [anim.hoveredColumn, anim.prevHoveredColumn]) {
+    if (col === null) continue;
+    const weight = columnHoverAlpha(anim, col, now);
+    if (weight > 0.01) out.push({ col, weight });
+  }
+  return out;
+};
+
+/**
+ * Light pooling inside the empty slots of the hovered column. Painted BEHIND
+ * the yellow face, so the board's own hole cutouts shape it — the highlight
+ * reads as seven lit cavities down a channel rather than a rectangle laid
+ * over the board.
+ *
+ * Each slot gets a radial that peaks at the centre and reaches zero by the
+ * hole edge, leaving the back-shadow's dark rim intact so the cell keeps its
+ * depth. Brightness ramps toward the landing row, tracing the path the piece
+ * would actually take.
+ */
+const drawColumnGlow = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
   state: GameState,
   anim: AnimState,
+  now: number,
 ): void => {
-  if (!state.isPlaying) return;
-  // Don't show a hover indicator while it's the AI's turn — the human can't
-  // act, so a ghost piece would be misleading.
-  if (state.aiPlayer !== null && state.currentPlayer === state.aiPlayer) return;
-  if (anim.hoveredColumn === null) return;
-  const col = anim.hoveredColumn;
+  if (!hoverAllowed(state)) return;
+  const active = hoveredColumns(anim, now);
+  if (active.length === 0) return;
 
-  // First free row, top-most-empty. If column full, do nothing.
-  const column = state.gameBoard[col];
-  const firstNonZero = column.findIndex((v) => v !== 0);
-  const freeRow = firstNonZero === -1 ? ROWS - 1 : firstNonZero - 1;
-  if (freeRow < 0) return;
+  const { cell } = layout;
+  // Full-strength player colour, not the softened piece tint: at these
+  // alphas a desaturated mix just reads as grey dust against the dark hole.
+  const tint = colorFor(state.currentPlayer);
 
-  const { board, cell } = layout;
-  const colX = board.x + board.padding + col * cell.size;
-
-  // Subtle column tint over the board body.
   ctx.save();
-  ctx.globalAlpha = 0.28;
-  ctx.fillStyle = C.columnHover;
-  ctx.fillRect(colX, board.bodyTop, cell.size, board.bodyHeight);
+  // Additive: the slot backs are near-black, so blending *adds* light to the
+  // cavity instead of laying a flat film over it. Keeps the colour reading as
+  // colour at alphas low enough to leave the shadowed rim intact.
+  ctx.globalCompositeOperation = 'lighter';
+  for (const { col, weight } of active) {
+    const land = landingRow(state.gameBoard[col]);
+    if (land < 0) continue; // full column — no channel to light
+
+    for (let row = 0; row <= land; row++) {
+      // 0 at the top of the open channel → 1 at the landing slot.
+      const depth = land === 0 ? 1 : row / land;
+      const peak = (0.30 + 0.24 * depth * depth) * weight;
+
+      const c = cellCenter(layout, col, row);
+      const grad = ctx.createRadialGradient(
+        c.x,
+        c.y,
+        0,
+        c.x,
+        c.y,
+        cell.holeRadius,
+      );
+      grad.addColorStop(0, alpha(tint, peak));
+      grad.addColorStop(0.55, alpha(tint, peak * 0.7));
+      grad.addColorStop(1, alpha(tint, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, cell.holeRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   ctx.restore();
+};
 
-  // Ghost piece in the top free slot.
-  const ghost = cellCenter(layout, col, freeRow);
+/**
+ * Ghost piece sitting in the slot the move would fill, plus a soft halo that
+ * bleeds onto the surrounding yellow. Painted AFTER the face so it sits in
+ * the hole the way a real piece does.
+ */
+const drawHoverGhost = (
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  state: GameState,
+  anim: AnimState,
+  now: number,
+): void => {
+  if (!hoverAllowed(state)) return;
+  const active = hoveredColumns(anim, now);
+  if (active.length === 0) return;
+
+  const { cell } = layout;
+  const tint = softColorFor(state.currentPlayer);
+
   ctx.save();
-  ctx.globalAlpha = 0.55;
-  ctx.fillStyle = softColorFor(state.currentPlayer);
-  circlePath(ctx, ghost.x, ghost.y, cell.pieceRadius);
-  ctx.fill();
+  for (const { col, weight } of active) {
+    const land = landingRow(state.gameBoard[col]);
+    if (land < 0) continue;
+    const c = cellCenter(layout, col, land);
+
+    // Halo: reaches just past the hole rim so the highlight doesn't stop on
+    // a hard circular edge.
+    const halo = ctx.createRadialGradient(
+      c.x,
+      c.y,
+      cell.pieceRadius * 0.6,
+      c.x,
+      c.y,
+      cell.glowRadius * 1.5,
+    );
+    halo.addColorStop(0, alpha(tint, 0.22 * weight));
+    halo.addColorStop(1, alpha(tint, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, cell.glowRadius * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.55 * weight;
+    ctx.fillStyle = tint;
+    circlePath(ctx, c.x, c.y, cell.pieceRadius);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
 };
 
@@ -565,47 +678,99 @@ const formatTime = (seconds: number): string => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
+/**
+ * The two clock cards, with the active one lit. Which player is "up" is
+ * carried by a per-player 0..1 weight rather than a boolean, so a turn change
+ * cross-fades both cards at once: the outgoing card settles back down as the
+ * incoming one rises, takes its colour, and grows its stripe.
+ */
 const drawClocks = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
   state: GameState,
+  anim: AnimState,
+  now: number,
 ): void => {
   const { clocks, scale } = layout;
   const times: [number, number] = [state.playerOneTime, state.playerTwoTime];
+  const flare = state.isPlaying ? turnFlare(anim, now) : 0;
 
   for (let i = 0; i < 2; i++) {
     const player = (i + 1) as Player;
-    const isActive = state.isPlaying && state.currentPlayer === player;
+    const tint = colorFor(player);
+    // 1 = fully "your turn", 0 = idle. Everything below reads off this.
+    const w = state.isPlaying
+      ? turnWeight(anim, player, state.currentPlayer, now)
+      : 0;
     const cx = clocks.centers[i];
     const cardX = cx - clocks.cardWidth / 2;
+    const cardCy = clocks.top + clocks.cardHeight / 2;
 
-    // Card background.
-    roundedRectPath(
-      ctx,
-      cardX,
-      clocks.top,
-      clocks.cardWidth,
-      clocks.cardHeight,
-      clocks.cardRadius,
-    );
-    ctx.fillStyle = isActive ? C.clockBgActive : C.clockBg;
-    ctx.fill();
+    ctx.save();
+    // Lift + a touch of scale as the turn arrives, so the active card comes
+    // forward rather than merely changing colour.
+    ctx.translate(cx, cardCy);
+    ctx.scale(1 + 0.022 * w, 1 + 0.022 * w);
+    ctx.translate(-cx, -cardCy - 3 * scale * w);
 
-    // Side stripe for the active player, in their color.
-    if (isActive) {
-      const stripeWidth = 4 * scale;
-      ctx.fillStyle = colorFor(player);
-      ctx.fillRect(
+    const cardPath = () =>
+      roundedRectPath(
+        ctx,
         cardX,
-        clocks.top + 8 * scale,
-        stripeWidth,
-        clocks.cardHeight - 16 * scale,
+        clocks.top,
+        clocks.cardWidth,
+        clocks.cardHeight,
+        clocks.cardRadius,
       );
+
+    // Base card, then the active fill layered over it at the turn weight.
+    // Both tokens carry their own alpha, so cross-fading by painting twice
+    // beats trying to interpolate two rgba strings.
+    cardPath();
+    ctx.fillStyle = C.clockBg;
+    ctx.fill();
+    if (w > 0.01) {
+      ctx.globalAlpha = w;
+      cardPath();
+      ctx.fillStyle = C.clockBgActive;
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
-    // Label — append "(CPU)" so it's clear who's the AI.
+    // Hand-off bloom: a soft outline in the player's colour that flares as
+    // the turn lands and is gone by the time they're actually thinking.
+    if (w > 0.01 && flare > 0.01) {
+      ctx.save();
+      ctx.shadowColor = alpha(tint, 0.9);
+      ctx.shadowBlur = 18 * scale * flare;
+      ctx.strokeStyle = alpha(tint, 0.55 * flare * w);
+      ctx.lineWidth = 1.5 * scale;
+      cardPath();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Side stripe, grown from the card's vertical centre so the turn reads as
+    // a baton being handed over rather than a light switching on.
+    if (w > 0.01) {
+      const stripeWidth = 4 * scale;
+      const stripeHeight = (clocks.cardHeight - 16 * scale) * w;
+      ctx.fillStyle = tint;
+      roundedRectPath(
+        ctx,
+        cardX,
+        cardCy - stripeHeight / 2,
+        stripeWidth,
+        stripeHeight,
+        Math.min(stripeWidth / 2, stripeHeight / 2),
+      );
+      ctx.fill();
+    }
+
+    // Label - append "(CPU)" so it's clear who's the AI. Warms toward the
+    // player's colour as their turn arrives.
     const isAi = state.aiPlayer === player;
-    ctx.fillStyle = C.textOnBg;
+    ctx.fillStyle = mix(C.textOnBg, tint, 0.7 * w);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.font = `600 ${11 * scale}px ${FONT_UI}`;
@@ -615,46 +780,103 @@ const drawClocks = (
       clocks.top + 14 * scale,
     );
 
-    // Time value, formatted M:SS.
+    // Time value, formatted M:SS. The idle clock dims back so the one
+    // actually counting down is unmistakable.
+    ctx.globalAlpha = 0.62 + 0.38 * w;
+    ctx.fillStyle = C.textOnBg;
     ctx.font = `${34 * scale}px ${FONT_MONO}`;
     ctx.textBaseline = 'middle';
     ctx.fillText(formatTime(times[i]), cx, clocks.top + clocks.cardHeight / 2 + 8 * scale);
+
+    ctx.restore();
   }
+};
+
+/** The turn indicator's label for a given player. */
+const turnLabelFor = (state: GameState, player: Player): string => {
+  const suffix = state.aiPlayer === player ? ' (CPU)' : '';
+  return state.isPlaying
+    ? `Player ${player}${suffix}'s turn`
+    : `Player ${player}${suffix}`;
 };
 
 /**
  * Minimalist turn indicator used when timers are off. Centered in the band
- * where the clocks would otherwise live — a single colored disc + the active
- * player's label, with a small "(CPU)" suffix if it's the AI's turn.
+ * where the clocks would otherwise live - a single colored disc + the active
+ * player's label.
+ *
+ * On a turn change the disc cross-fades to the new colour and sheds an
+ * expanding ring, while the outgoing label slides up and out and the incoming
+ * one rises into its place. With no clocks to carry the state, this band is
+ * the only thing saying whose move it is, so the change has to be legible.
  */
 const drawTurnIndicator = (
   ctx: CanvasRenderingContext2D,
   layout: Layout,
   state: GameState,
+  anim: AnimState,
+  now: number,
 ): void => {
   const { clocks, scale } = layout;
   const cx = layout.width / 2;
   const cy = clocks.top + clocks.cardHeight / 2;
 
   const player = state.currentPlayer;
+  const outgoing = anim.prevPlayer;
+  const t = state.isPlaying ? turnWeight(anim, player, player, now) : 1;
+  const flare = state.isPlaying ? turnFlare(anim, now) : 0;
   const radius = 18 * scale;
-  // Disc with a thin white outline for legibility on the blue background.
-  circlePath(ctx, cx - 90 * scale, cy, radius);
+  const discX = cx - 90 * scale;
+
+  // Ring shed by the disc at the moment of hand-off.
+  if (flare > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = 0.5 * (1 - flare);
+    ctx.strokeStyle = colorFor(player);
+    ctx.lineWidth = 2.5 * scale;
+    circlePath(ctx, discX, cy, radius * (1 + 1.1 * flare));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Disc: outgoing colour underneath, incoming painted over it at the switch
+  // weight, so the two hues blend through instead of swapping on one frame.
+  if (outgoing !== null && t < 1) {
+    circlePath(ctx, discX, cy, radius);
+    ctx.fillStyle = colorFor(outgoing);
+    ctx.fill();
+  }
+  ctx.save();
+  ctx.globalAlpha = outgoing === null ? 1 : t;
+  circlePath(ctx, discX, cy, radius);
   ctx.fillStyle = colorFor(player);
   ctx.fill();
+  ctx.restore();
+
+  // Thin outline for legibility on the blue background.
+  circlePath(ctx, discX, cy, radius);
   ctx.lineWidth = 2 * scale;
   ctx.strokeStyle = C.discOutline;
   ctx.stroke();
 
-  ctx.fillStyle = C.textOnBg;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = `500 ${22 * scale}px ${FONT_UI}`;
-  const isAi = state.aiPlayer === player;
-  const label = state.isPlaying
-    ? `Player ${player}${isAi ? ' (CPU)' : ''}'s turn`
-    : `Player ${player}${isAi ? ' (CPU)' : ''}`;
-  ctx.fillText(label, cx - 60 * scale, cy);
+  const labelX = cx - 60 * scale;
+  const travel = 14 * scale;
+
+  ctx.save();
+  // Outgoing label continues upward and fades; incoming rises to meet the
+  // baseline.
+  if (outgoing !== null && t < 1) {
+    ctx.globalAlpha = 1 - t;
+    ctx.fillStyle = C.textOnBg;
+    ctx.fillText(turnLabelFor(state, outgoing), labelX, cy - travel * t);
+  }
+  ctx.globalAlpha = outgoing === null ? 1 : t;
+  ctx.fillStyle = C.textOnBg;
+  ctx.fillText(turnLabelFor(state, player), labelX, cy + travel * (1 - t));
+  ctx.restore();
 };
 
 // ───────────────────────── in-game menu button + thinking indicator ─────────────────────────
@@ -844,9 +1066,9 @@ export const paint = (
   //    ends. With timers off there's nothing worth showing once it's over —
   //    whose turn it is stops being a fact.
   if (state.timersEnabled) {
-    drawClocks(ctx, layout, state);
+    drawClocks(ctx, layout, state, anim, now);
   } else if (!state.showOverlay) {
-    drawTurnIndicator(ctx, layout, state);
+    drawTurnIndicator(ctx, layout, state, anim, now);
   }
 
   // 3. Hole back-shadows. Painted on the background BEFORE pieces so that:
@@ -854,6 +1076,12 @@ export const paint = (
   //      and gives the slot real depth.
   //    - occupied cells: the opaque piece in step 4 covers the shadow.
   drawHoleBackShadows(ctx, layout);
+
+  // 3b. Hover glow, painted on the hole backs so the board face in step 6
+  //     masks it into the hole shapes — a lit channel, not a rectangle.
+  if (!state.showOverlay) {
+    drawColumnGlow(ctx, layout, state, anim, now);
+  }
 
   // 4. Pieces. Mid-drop pieces appear above the board area; they remain
   //    visible since the yellow face in step 6 only covers the rectangle
@@ -888,11 +1116,11 @@ export const paint = (
     drawColumnKeyHints(ctx, layout);
   }
 
-  // 9. Hover indicator + ghost piece. Drawn after the board so the ghost
-  //    appears INSIDE the appropriate hole and the column tint sits on top
-  //    of the yellow band. Suppressed during the end-banner / win sequence.
+  // 9. Hover ghost piece + halo. Drawn after the board face so the ghost
+  //    appears INSIDE the target hole, like a settled piece would.
+  //    Suppressed during the end-banner / win sequence.
   if (!state.showOverlay) {
-    drawHover(ctx, layout, state, anim);
+    drawHoverGhost(ctx, layout, state, anim, now);
   }
 
   // 10. "CONNECT4" title.

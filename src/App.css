@@ -42,18 +42,53 @@ body,
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * The app bar's height is fixed rather than content-derived because
+ * .canvas-wrap subtracts it to work out how much room the board has. A bar
+ * free to grow by a pixel would lay the board out against height that isn't
+ * there. 50px logo + the header's own 5px / 10px padding.
+ */
+:root {
+  --header-h: 65px;
+}
+
+/* Bar on top, board in what's left. */
 .App {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/*
+ * The play area takes the height the header leaves. `min-height: 0` is what
+ * lets it: without it a flex child refuses to shrink below its content, which
+ * would push the board past the bottom of the screen rather than centring it
+ * in the space available.
+ *
+ * The padding lives here rather than on .App so the header can still run edge
+ * to edge. The attribution badge is position: fixed in the bottom-right
+ * corner, so on a short viewport the play area can grow underneath it;
+ * reserving its strip here — on the wrapper, not on the play area — keeps the
+ * two apart at every size instead of pushing the collision to the next
+ * smaller one.
+ */
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100%;
-  /*
-   * The attribution badge is position: fixed in the bottom-right corner, so on
-   * a short viewport the play area can grow underneath it. Reserving its strip
-   * here — on the wrapper, not on the play area — keeps the two apart at every
-   * size instead of pushing the collision to the next smaller one.
-   */
   padding: 1rem 1rem calc(1rem + 3.25rem);
+  /*
+   * The canvas paints a radial vignette — background.base at the middle,
+   * background.floor at its corners (see drawBackground in canvas/scene.ts).
+   * Left on the page's base tone, the stage was *lighter* than that vignette's
+   * edge, so the canvas read as a darker rectangle floating in the middle of
+   * it. Taking the floor tone here puts the stage at exactly the value the
+   * canvas ends on: the boundary stops existing, and the vignette reads as
+   * light pooling around the board rather than a panel pasted onto a page.
+   */
+  background-color: var(--no-background-floor, #010e18);
 }
 
 /*
@@ -70,9 +105,10 @@ body,
    * which a plain "max-width + max-height + aspect-ratio" combo doesn't.
    */
   /* vh first as the fallback; dvh wins where supported, which is what keeps
-     the board clear of mobile browser chrome. Both subtract .App's padding. */
-  width: min(700px, 90vw, calc((100vh - 2rem - 3.25rem) * 7 / 8));
-  width: min(700px, 90vw, calc((100dvh - 2rem - 3.25rem) * 7 / 8));
+     the board clear of mobile browser chrome. Both subtract the app bar and
+     the stage's padding. */
+  width: min(700px, 90vw, calc((100vh - var(--header-h) - 2rem - 3.25rem) * 7 / 8));
+  width: min(700px, 90vw, calc((100dvh - var(--header-h) - 2rem - 3.25rem) * 7 / 8));
   aspect-ratio: 7 / 8;
 }
 
@@ -82,6 +118,97 @@ canvas {
   height: 100%;
   /* Prevent scroll/zoom gestures from interfering with column taps. */
   touch-action: manipulation;
+}
+
+/* ─────────────────────────── the app bar ─────────────────────────── */
+
+/*
+ * Mark, then wordmark and credit, hard against the left edge — the same bar
+ * the sibling projects wear. `flex-start` and source order are the whole
+ * layout: nothing is pushed to the right, at any width, so the mark stays
+ * left of the name on a phone exactly as it does on a desktop.
+ */
+.app-header {
+  flex: none;
+  /*
+   * Above the modal backdrop (z-index 100), like .kb-toggle. The welcome
+   * modal is the landing screen, so a bar left under the backdrop would spend
+   * the app's first impression blurred out. Chrome stays crisp; the play
+   * surface behind it is what dims. Needs `position` for z-index to apply.
+   */
+  position: relative;
+  z-index: 150;
+  height: var(--header-h);
+  width: 100%;
+  padding: 5px 12px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+  background-color: var(--no-background-surface, #0a1e30);
+  border-bottom: 1px solid var(--ui-hairline-strong, rgba(214, 222, 235, 0.18));
+}
+
+.logo {
+  display: inline-block;
+  height: 50px;
+  width: 50px;
+}
+
+.header-text {
+  margin: 0 10px;
+}
+
+.header-text p {
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+
+/*
+ * Poppins is the display face the board title and the modal headings use, so
+ * the wordmark speaks in the same voice as CONNECT4. The weight is explicit
+ * because index.html only fetches Poppins at 600/700/800 — left at the
+ * default 400 the browser would be matching against a face it never loaded.
+ */
+.title {
+  font-size: 1.75rem;
+  font-family: 'Poppins', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
+  color: var(--no-text-primary, #d6deeb);
+}
+
+.credit {
+  font-size: 0.7rem;
+  color: var(--no-text-secondary, #9db2c0);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.credit:hover {
+  color: var(--no-text-primary, #d6deeb);
+}
+
+.credit:focus-visible {
+  outline: 2px solid var(--ui-focus-ring, #82aaff);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/*
+ * Narrow screens: only the type changes. The order doesn't — the mark stays
+ * left of the name. Nothing here changes the bar's height either; the logo
+ * still governs it, and .canvas-wrap is sized against it.
+ */
+@media (max-width: 800px) {
+  .header-text {
+    margin: 0 0 0 10px;
+  }
+
+  .header-text p {
+    font-size: 0.8rem;
+  }
 }
 
 /* ─────────────────────────── modals ─────────────────────────── */
@@ -373,7 +500,13 @@ canvas {
  */
 .kb-toggle {
   position: fixed;
-  top: 1rem;
+  /*
+   * Below the app bar, not over it: the bar carries the mark and wordmark on
+   * the left and deliberately nothing on the right, and a chip floating in
+   * that space would read as a header control. This lands it level with the
+   * top edge of the board instead.
+   */
+  top: calc(var(--header-h) + 1rem);
   right: 1rem;
   /*
    * Above the modal backdrop (z-index 100) so the toggle remains usable
